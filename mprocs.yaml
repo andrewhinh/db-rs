@@ -86,3 +86,12 @@ procs:
       sleep 2
       cargo run --example replication_resume
     autostart: false
+
+  session_consistency:
+    cwd: .
+    shell: |
+      until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done
+      cargo run --bin db-rs-server -- --port 6382 --replicaof 127.0.0.1:6379 &
+      sleep 2
+      cargo run --example session_consistency
+    autostart: false

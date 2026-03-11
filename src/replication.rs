@@ -98,12 +98,12 @@ pub(crate) async fn run_follower(
                                 first_offset = Some(offset);
                             }
                             if offset == first_offset.unwrap() {
-                                db.apply_change_quiet(&op, &key, value);
+                                db.apply_change_quiet(&op, &key, value, offset);
                                 false
                             } else {
                                 in_snapshot = false;
                                 if offset > last_applied {
-                                    db.apply_change_quiet(&op, &key, value);
+                                    db.apply_change_quiet(&op, &key, value, offset);
                                     last_applied = offset;
                                     true
                                 } else {
@@ -111,7 +111,7 @@ pub(crate) async fn run_follower(
                                 }
                             }
                         } else if offset > last_applied {
-                            db.apply_change_quiet(&op, &key, value);
+                            db.apply_change_quiet(&op, &key, value, offset);
                             last_applied = offset;
                             true
                         } else {

@@ -146,8 +146,19 @@ impl Client {
     /// ```
     #[instrument(skip(self))]
     pub async fn get(&mut self, key: &str) -> crate::Result<Option<Bytes>> {
-        // Create a `Get` command for the `key` and convert it to a frame.
-        let frame = Get::new(key).into_frame();
+        self.get_with_offset(key, None).await
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_with_offset(
+        &mut self,
+        key: &str,
+        min_offset: Option<i64>,
+    ) -> crate::Result<Option<Bytes>> {
+        let frame = match min_offset {
+            Some(off) => Get::with_read_offset(key, off).into_frame(),
+            None => Get::new(key).into_frame(),
+        };
 
         debug!(request = ?frame);
 

@@ -36,6 +36,6 @@ mprocs
 - [x] snapshot and offset bootstrap
 - [x] leader/follower async replication
 - [x] resume from persisted offset
-- [ ] read-your-writes and monotonic reads
+- [x] read-your-writes and monotonic reads
 - [ ] WATCH/CAS-style optimistic writes
 - [ ] event-time windows and late corrections
