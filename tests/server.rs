@@ -56,18 +56,12 @@ async fn key_value_get_set() {
     assert_eq!(0, stream.read(&mut response).await.unwrap());
 }
 
-/// Similar to the basic key-value test, however, this time timeouts will be
-/// tested. This test demonstrates how to test time related behavior.
+/// Similar to the basic key-value test, but validates key expiration.
 ///
-/// When writing tests, it is useful to remove sources of non-determinism. Time
-/// is a source of non-determinism. Here, we "pause" time using the
-/// `time::pause()` function. This function is available with the `test-util`
-/// feature flag. This allows us to deterministically control how time appears
-/// to advance to the application.
+/// This test uses a short PX timeout and bounded reads so failures surface
+/// quickly instead of hanging on socket reads.
 #[tokio::test]
 async fn key_value_timeout() {
-    tokio::time::pause();
-
     let addr = start_server().await;
 
     // Establish a connection to the server
@@ -77,7 +71,7 @@ async fn key_value_timeout() {
     stream
         .write_all(
             b"*5\r\n$3\r\nSET\r\n$5\r\nhello\r\n$5\r\nworld\r\n\
-                     +EX\r\n:1\r\n",
+                     +PX\r\n:200\r\n",
         )
         .await
         .unwrap();
@@ -89,21 +83,21 @@ async fn key_value_timeout() {
 
     assert_eq!(b"+OK\r\n", &response);
 
-    // Get the key, data is present
+    // Get the key before expiration: data is present.
     stream
         .write_all(b"*2\r\n$3\r\nGET\r\n$5\r\nhello\r\n")
         .await
         .unwrap();
 
-    // Read "world" response
     let mut response = [0; 11];
-
-    stream.read_exact(&mut response).await.unwrap();
-
+    time::timeout(Duration::from_secs(1), stream.read_exact(&mut response))
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(b"$5\r\nworld\r\n", &response);
 
-    // Wait for the key to expire
-    time::advance(Duration::from_secs(1)).await;
+    // Wait for the key to expire.
+    time::sleep(Duration::from_millis(300)).await;
 
     // Get a key, data is missing
     stream
@@ -114,7 +108,10 @@ async fn key_value_timeout() {
     // Read nil response
     let mut response = [0; 5];
 
-    stream.read_exact(&mut response).await.unwrap();
+    time::timeout(Duration::from_secs(1), stream.read_exact(&mut response))
+        .await
+        .unwrap()
+        .unwrap();
 
     assert_eq!(b"$-1\r\n", &response);
 }

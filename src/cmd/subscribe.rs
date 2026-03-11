@@ -217,7 +217,7 @@ async fn handle_command(
         Command::Subscribe(subscribe) => {
             // The `apply` method will subscribe to the channels we add to this
             // vector.
-            subscribe_to.extend(subscribe.channels.into_iter());
+            subscribe_to.extend(subscribe.channels);
         }
         Command::Unsubscribe(mut unsubscribe) => {
             // If no channels are specified, this requests unsubscribing from
