@@ -467,19 +467,14 @@ impl Handler {
             // as key-value pairs.
             debug!(?cmd);
 
-            if self.is_follower && cmd.should_append_to_aof() {
+            let should_append = cmd.should_append_to_aof();
+            if self.is_follower && should_append {
                 self.connection
                     .write_frame(&Frame::Error(
                         "READONLY You can't write against a replica.".into(),
                     ))
                     .await?;
                 continue;
-            }
-
-            if cmd.should_append_to_aof()
-                && let Some(aof) = &self.aof
-            {
-                aof.append_frame(&frame).await?;
             }
 
             // Perform the work needed to apply the command. This may mutate the
@@ -489,8 +484,16 @@ impl Handler {
             // command to write response frames directly to the connection. In
             // the case of pub/sub, multiple frames may be send back to the
             // peer.
-            cmd.apply(&self.db, &mut self.connection, &mut self.shutdown)
+            let mutated = cmd
+                .apply(&self.db, &mut self.connection, &mut self.shutdown)
                 .await?;
+
+            if mutated
+                && should_append
+                && let Some(aof) = &self.aof
+            {
+                aof.append_frame(&frame).await?;
+            }
         }
 
         Ok(())

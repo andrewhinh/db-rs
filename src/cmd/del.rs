@@ -41,11 +41,11 @@ impl Del {
     }
 
     /// Apply the `Del` command to the specified `Db` instance.
-    pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<()> {
+    pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<bool> {
         let removed = db.del_many(&self.keys);
         let response = Frame::Integer(removed as i64);
         dst.write_frame(&response).await?;
-        Ok(())
+        Ok(true)
     }
 
     pub(crate) fn apply_for_replay(self, db: &Db) -> crate::Result<()> {

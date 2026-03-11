@@ -53,7 +53,7 @@ impl Ping {
     /// The response is written to `dst`. This is called by the server in order
     /// to execute a received command.
     #[instrument(skip(self, dst))]
-    pub(crate) async fn apply(self, dst: &mut Connection) -> crate::Result<()> {
+    pub(crate) async fn apply(self, dst: &mut Connection) -> crate::Result<bool> {
         let response = match self.msg {
             None => Frame::Simple("PONG".to_string()),
             Some(msg) => Frame::Bulk(msg),
@@ -63,8 +63,7 @@ impl Ping {
 
         // Write the response back to the client
         dst.write_frame(&response).await?;
-
-        Ok(())
+        Ok(false)
     }
 
     /// Converts the command into an equivalent `Frame`.

@@ -35,11 +35,11 @@ impl Expire {
     }
 
     /// Apply the `Expire` command to the specified `Db` instance.
-    pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<()> {
+    pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<bool> {
         let updated = db.expire(&self.key, Duration::from_secs(self.seconds));
         let response = Frame::Integer(if updated { 1 } else { 0 });
         dst.write_frame(&response).await?;
-        Ok(())
+        Ok(true)
     }
 
     pub(crate) fn apply_for_replay(self, db: &Db) -> crate::Result<()> {

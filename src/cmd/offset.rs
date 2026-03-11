@@ -10,10 +10,10 @@ impl Offset {
         Ok(Offset)
     }
 
-    pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<()> {
+    pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<bool> {
         dst.write_frame(&Frame::Integer(db.current_offset()))
             .await?;
-        Ok(())
+        Ok(false)
     }
 
     pub(crate) fn into_frame(self) -> Frame {

@@ -63,6 +63,14 @@ impl Frame {
         }
     }
 
+    /// Push a null frame into the array. `self` must be an Array frame.
+    pub(crate) fn push_null(&mut self) {
+        match self {
+            Frame::Array(vec) => vec.push(Frame::Null),
+            _ => panic!("not an array frame"),
+        }
+    }
+
     /// Checks if an entire message can be decoded from `src`
     pub fn check(src: &mut Cursor<&[u8]>) -> Result<(), Error> {
         match get_u8(src)? {

@@ -90,7 +90,7 @@ impl Get {
     /// The response is written to `dst`. This is called by the server in order
     /// to execute a received command.
     #[instrument(skip(self, db, dst))]
-    pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<()> {
+    pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<bool> {
         if let Some(required) = self.read_offset {
             let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
             while db.current_offset() < required {
@@ -113,7 +113,7 @@ impl Get {
 
         // Write the response back to the client
         dst.write_frame(&response).await?;
-        Ok(())
+        Ok(false)
     }
 
     /// Converts the command into an equivalent `Frame`.

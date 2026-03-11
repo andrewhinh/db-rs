@@ -64,7 +64,7 @@ impl Publish {
     ///
     /// The response is written to `dst`. This is called by the server in order
     /// to execute a received command.
-    pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<()> {
+    pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<bool> {
         // The shared state contains the `tokio::sync::broadcast::Sender` for
         // all active channels. Calling `db.publish` dispatches the message into
         // the appropriate channel.
@@ -82,8 +82,7 @@ impl Publish {
 
         // Write the frame to the client.
         dst.write_frame(&response).await?;
-
-        Ok(())
+        Ok(false)
     }
 
     /// Converts the command into an equivalent `Frame`.

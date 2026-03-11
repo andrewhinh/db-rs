@@ -37,5 +37,5 @@ mprocs
 - [x] leader/follower async replication
 - [x] resume from persisted offset
 - [x] read-your-writes and monotonic reads
-- [ ] WATCH/CAS-style optimistic writes
+- [x] WATCH/CAS-style optimistic writes
 - [ ] event-time windows and late corrections
