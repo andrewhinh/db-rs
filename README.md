@@ -30,7 +30,7 @@ mprocs
 - [x] add EXPIRE and TTL/PTTL
 - [x] append AOF for mutating cmds
 - [x] replay AOF on startup
-- [ ] snapshot and restore
+- [x] snapshot and restore
 - [ ] AOF rewrite and tombstones
 - [ ] ordered change stream
 - [ ] snapshot and offset bootstrap

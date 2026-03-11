@@ -97,7 +97,7 @@ fn replay_bytes(contents: &[u8], db: &Db) -> crate::Result<ReplayStats> {
     Ok(stats)
 }
 
-fn encode_frame(frame: &Frame, dst: &mut Vec<u8>) -> io::Result<()> {
+pub(crate) fn encode_frame(frame: &Frame, dst: &mut Vec<u8>) -> io::Result<()> {
     match frame {
         Frame::Simple(value) => {
             dst.push(b'+');

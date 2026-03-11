@@ -1,11 +1,11 @@
-//! AOF replay example.
+//! Snapshot restore example.
 //!
-//! This example starts an in-process server with `--aof-path` equivalent
+//! This example starts an in-process server with `--snapshot-path` equivalent
 //! config, writes data, restarts, then prints restored value and ttl.
 //!
 //! Run with:
 //!
-//!     cargo run --example aof_replay
+//!     cargo run --example snapshot_restore
 
 #![warn(rust_2018_idioms)]
 
@@ -15,12 +15,12 @@ use db_rs::{Result, clients::Client, server::ServerConfig};
 
 #[tokio::main]
 pub async fn main() -> Result<()> {
-    let aof_path = common::temp_path("db-rs-replay", "aof");
+    let snapshot_path = common::temp_path("db-rs-snapshot-restore", "snap");
 
     {
         let server = common::start_server(ServerConfig {
-            aof_path: Some(aof_path.clone()),
-            snapshot_path: None,
+            aof_path: None,
+            snapshot_path: Some(snapshot_path.clone()),
         })
         .await?;
         let mut client = Client::connect(server.addr).await?;
@@ -31,18 +31,18 @@ pub async fn main() -> Result<()> {
 
     {
         let server = common::start_server(ServerConfig {
-            aof_path: Some(aof_path.clone()),
-            snapshot_path: None,
+            aof_path: None,
+            snapshot_path: Some(snapshot_path.clone()),
         })
         .await?;
         let mut client = Client::connect(server.addr).await?;
         let value = client.get("user:1").await?;
         let ttl = client.ttl("user:1").await?;
-        println!("replayed value: {value:?}");
-        println!("replayed ttl: {ttl}");
+        println!("restored value: {value:?}");
+        println!("restored ttl: {ttl}");
         server.shutdown().await?;
     }
 
-    let _ = tokio::fs::remove_file(aof_path).await;
+    let _ = tokio::fs::remove_file(snapshot_path).await;
     Ok(())
 }
