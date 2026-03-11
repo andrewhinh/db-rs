@@ -1,10 +1,14 @@
 use std::collections::{BTreeSet, HashMap};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use tokio::sync::{Notify, broadcast};
 use tokio::time::{self, Duration, Instant};
 use tracing::debug;
+
+use crate::Frame;
+use crate::aof;
 
 /// A wrapper around a `Db` instance. This exists to allow orderly cleanup
 /// of the `Db` by signalling the background purge task to shut down when
@@ -55,6 +59,8 @@ struct Shared {
     /// task waits on this to be notified, then checks for expired values or the
     /// shutdown signal.
     background_task: Notify,
+    change_tx: broadcast::Sender<Bytes>,
+    next_offset: AtomicU64,
 }
 
 #[derive(Debug)]
@@ -128,6 +134,7 @@ impl Db {
     /// Create a new, empty, `Db` instance. Allocates shared state and spawns a
     /// background task to manage key expiration.
     pub(crate) fn new() -> Db {
+        let (change_tx, _) = broadcast::channel(1024);
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
                 entries: HashMap::new(),
@@ -136,12 +143,18 @@ impl Db {
                 shutdown: false,
             }),
             background_task: Notify::new(),
+            change_tx,
+            next_offset: AtomicU64::new(0),
         });
 
         // Start the background task.
         tokio::spawn(purge_expired_tasks(shared.clone()));
 
         Db { shared }
+    }
+
+    pub(crate) fn subscribe_changes(&self) -> broadcast::Receiver<Bytes> {
+        self.shared.change_tx.subscribe()
     }
 
     /// Get the value associated with a key.
@@ -161,11 +174,11 @@ impl Db {
     /// Delete one or more keys and return the number of deleted keys.
     pub(crate) fn del_many(&self, keys: &[String]) -> usize {
         let mut state = self.shared.state.lock().unwrap();
-        let mut removed = 0;
+        let mut removed_keys = Vec::new();
 
         for key in keys {
             if let Some(prev) = state.entries.remove(key) {
-                removed += 1;
+                removed_keys.push(key.clone());
 
                 if let Some(when) = prev.expires_at {
                     state.expirations.remove(&(when, key.clone()));
@@ -173,7 +186,12 @@ impl Db {
             }
         }
 
-        removed
+        drop(state);
+        for key in &removed_keys {
+            self.shared.emit_change("del", key, None);
+        }
+
+        removed_keys.len()
     }
 
     /// Return the number of keys that currently exist.
@@ -222,9 +240,10 @@ impl Db {
             entry.expires_at = Some(when);
         }
 
-        state.expirations.insert((when, key));
+        state.expirations.insert((when, key.clone()));
 
         drop(state);
+        self.shared.emit_change("expire", &key, None);
         if notify {
             self.shared.background_task.notify_one();
         }
@@ -303,7 +322,7 @@ impl Db {
         let prev = state.entries.insert(
             key.clone(),
             Entry {
-                data: value,
+                data: value.clone(),
                 expires_at,
             },
         );
@@ -322,14 +341,14 @@ impl Db {
         // when current `(when, key)` equals prev `(when, key)`. Remove then insert
         // can avoid this.
         if let Some(when) = expires_at {
-            state.expirations.insert((when, key));
+            state.expirations.insert((when, key.clone()));
         }
 
         // Release the mutex before notifying the background task. This helps
         // reduce contention by avoiding the background task waking up only to
         // be unable to acquire the mutex due to this function still holding it.
         drop(state);
-
+        self.shared.emit_change("set", &key, Some(value));
         if notify {
             // Finally, only notify the background task if it needs to update
             // its state to reflect a new expiration.
@@ -435,40 +454,63 @@ impl Db {
 }
 
 impl Shared {
+    fn emit_change(&self, op: &str, key: &str, value: Option<Bytes>) {
+        let offset = self.next_offset.fetch_add(1, Ordering::SeqCst) as i64;
+        let value_frame = value.map_or(Frame::Null, Frame::Bulk);
+        let frame = Frame::Array(vec![
+            Frame::Integer(offset),
+            Frame::Simple(op.to_string()),
+            Frame::Bulk(Bytes::from(key.to_string())),
+            value_frame,
+        ]);
+        let mut encoded = Vec::new();
+        if aof::encode_frame(&frame, &mut encoded).is_ok() {
+            let _ = self.change_tx.send(Bytes::from(encoded));
+        }
+    }
+
     /// Purge all expired keys and return the `Instant` at which the **next**
     /// key will expire. The background task will sleep until this instant.
     fn purge_expired_keys(&self) -> Option<Instant> {
-        let mut state = self.state.lock().unwrap();
-
-        if state.shutdown {
-            // The database is shutting down. All handles to the shared state
-            // have dropped. The background task should exit.
-            return None;
-        }
-
-        // This is needed to make the borrow checker happy. In short, `lock()`
-        // returns a `MutexGuard` and not a `&mut State`. The borrow checker is
-        // not able to see "through" the mutex guard and determine that it is
-        // safe to access both `state.expirations` and `state.entries` mutably,
-        // so we get a "real" mutable reference to `State` outside of the loop.
-        let state = &mut *state;
-
-        // Find all keys scheduled to expire **before** now.
-        let now = Instant::now();
-
-        while let Some(&(when, ref key)) = state.expirations.iter().next() {
-            if when > now {
-                // Done purging, `when` is the instant at which the next key
-                // expires. The worker task will wait until this instant.
-                return Some(when);
+        let (expired_keys, next) = {
+            let mut state = self.state.lock().unwrap();
+            if state.shutdown {
+                // The database is shutting down. All handles to the shared state
+                // have dropped. The background task should exit.
+                return None;
             }
 
-            // The key expired, remove it
-            state.entries.remove(key);
-            state.expirations.remove(&(when, key.clone()));
-        }
+            // This is needed to make the borrow checker happy. In short, `lock()`
+            // returns a `MutexGuard` and not a `&mut State`. The borrow checker is
+            // not able to see "through" the mutex guard and determine that it is
+            // safe to access both `state.expirations` and `state.entries` mutably,
+            // so we get a "real" mutable reference to `State` outside of the loop.
+            let state = &mut *state;
 
-        None
+            // Find all keys scheduled to expire **before** now.
+            let now = Instant::now();
+            let mut expired_keys: Vec<String> = Vec::new();
+            let mut next_expiration = None;
+
+            while let Some(&(when, ref key)) = state.expirations.iter().next() {
+                if when > now {
+                    // Done purging, `when` is the instant at which the next key expires.
+                    // The worker task will wait until this instant.
+                    next_expiration = Some(when);
+                    break;
+                }
+                expired_keys.push(key.clone());
+                // The key expired, remove it
+                state.entries.remove(key);
+                state.expirations.remove(&(when, key.clone()));
+            }
+            (expired_keys, next_expiration)
+        };
+
+        for key in expired_keys {
+            self.emit_change("del", &key, None);
+        }
+        next
     }
 
     /// Returns `true` if the database is shutting down

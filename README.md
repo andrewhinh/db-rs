@@ -32,7 +32,7 @@ mprocs
 - [x] replay AOF on startup
 - [x] snapshot and restore
 - [x] AOF rewrite and tombstones
-- [ ] ordered change stream
+- [x] ordered change stream
 - [ ] snapshot and offset bootstrap
 - [ ] leader/follower async replication
 - [ ] resume from persisted offset

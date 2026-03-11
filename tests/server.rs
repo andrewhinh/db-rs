@@ -1,8 +1,9 @@
+mod common;
+
 use std::net::SocketAddr;
 
-use db_rs::server;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpStream;
 use tokio::time::{self, Duration};
 
 /// A basic "hello world" style test. A server instance is started in a
@@ -11,7 +12,7 @@ use tokio::time::{self, Duration};
 /// level.
 #[tokio::test]
 async fn key_value_get_set() {
-    let addr = start_server().await;
+    let addr = common::start_server().await.0;
 
     // Establish a connection to the server
     let mut stream = TcpStream::connect(addr).await.unwrap();
@@ -58,7 +59,7 @@ async fn key_value_get_set() {
 
 #[tokio::test]
 async fn key_value_exists_del() {
-    let addr = start_server().await;
+    let addr = common::start_server().await.0;
 
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
@@ -101,7 +102,7 @@ async fn key_value_exists_del() {
 /// quickly instead of hanging on socket reads.
 #[tokio::test]
 async fn key_value_timeout() {
-    let addr = start_server().await;
+    let addr = common::start_server().await.0;
 
     // Establish a connection to the server
     let mut stream = TcpStream::connect(addr).await.unwrap();
@@ -157,7 +158,7 @@ async fn key_value_timeout() {
 
 #[tokio::test]
 async fn key_value_expire_ttl_pttl() {
-    let addr = start_server().await;
+    let addr = common::start_server().await.0;
 
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
@@ -218,7 +219,7 @@ async fn key_value_expire_ttl_pttl() {
 
 #[tokio::test]
 async fn key_value_del_ttl() {
-    let addr = start_server().await;
+    let addr = common::start_server().await.0;
 
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
@@ -254,7 +255,7 @@ async fn key_value_del_ttl() {
 
 #[tokio::test]
 async fn pub_sub() {
-    let addr = start_server().await;
+    let addr = common::start_server().await.0;
 
     let mut publisher = TcpStream::connect(addr).await.unwrap();
 
@@ -377,7 +378,7 @@ async fn pub_sub() {
 
 #[tokio::test]
 async fn manage_subscription() {
-    let addr = start_server().await;
+    let addr = common::start_server().await.0;
 
     let mut publisher = TcpStream::connect(addr).await.unwrap();
 
@@ -468,7 +469,7 @@ async fn manage_subscription() {
 // sends an unknown command
 #[tokio::test]
 async fn send_error_unknown_command() {
-    let addr = start_server().await;
+    let addr = common::start_server().await.0;
 
     // Establish a connection to the server
     let mut stream = TcpStream::connect(addr).await.unwrap();
@@ -490,7 +491,7 @@ async fn send_error_unknown_command() {
 // sends an GET or SET command after a SUBSCRIBE
 #[tokio::test]
 async fn send_error_get_set_after_subscribe() {
-    let addr = start_server().await;
+    let addr = common::start_server().await.0;
 
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
@@ -548,15 +549,6 @@ async fn send_error_get_set_after_subscribe() {
     let mut response = vec![0; expected.len()];
     stream.read_exact(&mut response).await.unwrap();
     assert_eq!(expected, response.as_slice());
-}
-
-async fn start_server() -> SocketAddr {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-
-    tokio::spawn(async move { server::run(listener, tokio::signal::ctrl_c()).await });
-
-    addr
 }
 
 async fn read_integer_response(stream: &mut TcpStream) -> i64 {

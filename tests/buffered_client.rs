@@ -1,11 +1,6 @@
-use std::net::SocketAddr;
+mod common;
 
-use db_rs::{
-    clients::{BufferedClient, Client},
-    server,
-};
-use tokio::net::TcpListener;
-use tokio::task::JoinHandle;
+use db_rs::clients::{BufferedClient, Client};
 use tokio::time::{self, Duration};
 
 /// A basic "hello world" style test. A server instance is started in a
@@ -14,7 +9,7 @@ use tokio::time::{self, Duration};
 /// response is then evaluated.
 #[tokio::test]
 async fn pool_key_value_get_set() {
-    let (addr, _) = start_server().await;
+    let (addr, _) = common::start_server().await;
 
     let client = Client::connect(addr).await.unwrap();
     let mut client = BufferedClient::buffer(client);
@@ -27,7 +22,7 @@ async fn pool_key_value_get_set() {
 
 #[tokio::test]
 async fn pool_key_value_exists_del() {
-    let (addr, _) = start_server().await;
+    let (addr, _) = common::start_server().await;
 
     let client = Client::connect(addr).await.unwrap();
     let mut client = BufferedClient::buffer(client);
@@ -50,7 +45,7 @@ async fn pool_key_value_exists_del() {
 
 #[tokio::test]
 async fn pool_key_value_expire_ttl_pttl() {
-    let (addr, _) = start_server().await;
+    let (addr, _) = common::start_server().await;
 
     let client = Client::connect(addr).await.unwrap();
     let mut client = BufferedClient::buffer(client);
@@ -78,13 +73,4 @@ async fn pool_key_value_expire_ttl_pttl() {
 
     let pttl = client.pttl("hello").await.unwrap();
     assert_eq!(-2, pttl);
-}
-
-async fn start_server() -> (SocketAddr, JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-
-    let handle = tokio::spawn(async move { server::run(listener, tokio::signal::ctrl_c()).await });
-
-    (addr, handle)
 }

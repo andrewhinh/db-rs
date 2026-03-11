@@ -1,15 +1,15 @@
+mod common;
+
 use std::net::SocketAddr;
 
-use db_rs::{clients::Client, server};
-use tokio::net::TcpListener;
-use tokio::task::JoinHandle;
+use db_rs::clients::Client;
 use tokio::time::{self, Duration};
 
 /// A PING PONG test without message provided.
 /// It should return "PONG".
 #[tokio::test]
 async fn ping_pong_without_message() {
-    let (addr, _) = start_server().await;
+    let (addr, _) = common::start_server().await;
     let mut client = Client::connect(addr).await.unwrap();
 
     let pong = client.ping(None).await.unwrap();
@@ -20,7 +20,7 @@ async fn ping_pong_without_message() {
 /// It should return the message.
 #[tokio::test]
 async fn ping_pong_with_message() {
-    let (addr, _) = start_server().await;
+    let (addr, _) = common::start_server().await;
     let mut client = Client::connect(addr).await.unwrap();
 
     let pong = client.ping(Some("你好世界".into())).await.unwrap();
@@ -32,7 +32,7 @@ async fn ping_pong_with_message() {
 /// commands are sent to the server. The response is then evaluated
 #[tokio::test]
 async fn key_value_get_set() {
-    let (addr, _) = start_server().await;
+    let (addr, _) = common::start_server().await;
 
     let mut client = Client::connect(addr).await.unwrap();
     client.set("hello", "world".into()).await.unwrap();
@@ -43,7 +43,7 @@ async fn key_value_get_set() {
 
 #[tokio::test]
 async fn key_value_exists_del() {
-    let (addr, _) = start_server().await;
+    let (addr, _) = common::start_server().await;
 
     let mut client = Client::connect(addr).await.unwrap();
     client.set("hello", "world".into()).await.unwrap();
@@ -70,7 +70,7 @@ async fn key_value_exists_del() {
 
 #[tokio::test]
 async fn key_value_expire_ttl_pttl() {
-    let (addr, _) = start_server().await;
+    let (addr, _) = common::start_server().await;
 
     let mut client = Client::connect(addr).await.unwrap();
 
@@ -106,7 +106,7 @@ async fn key_value_expire_ttl_pttl() {
 /// a single channel subscription will be tested instead
 #[tokio::test]
 async fn receive_message_subscribed_channel() {
-    let (addr, _) = start_server().await;
+    let (addr, _) = common::start_server().await;
 
     let client = Client::connect(addr).await.unwrap();
     let mut subscriber = client.subscribe(vec!["hello".into()]).await.unwrap();
@@ -124,7 +124,7 @@ async fn receive_message_subscribed_channel() {
 /// test that a client gets messages from multiple subscribed channels
 #[tokio::test]
 async fn receive_message_multiple_subscribed_channels() {
-    let (addr, _) = start_server().await;
+    let (addr, _) = common::start_server().await;
 
     let client = Client::connect(addr).await.unwrap();
     let mut subscriber = client
@@ -155,7 +155,7 @@ async fn receive_message_multiple_subscribed_channels() {
 /// when unsubscribing to all subscribed channels by submitting an empty vec
 #[tokio::test]
 async fn unsubscribes_from_channels() {
-    let (addr, _) = start_server().await;
+    let (addr, _) = common::start_server().await;
 
     let client = Client::connect(addr).await.unwrap();
     let mut subscriber = client
@@ -165,13 +165,4 @@ async fn unsubscribes_from_channels() {
 
     subscriber.unsubscribe(&[]).await.unwrap();
     assert_eq!(subscriber.get_subscribed().len(), 0);
-}
-
-async fn start_server() -> (SocketAddr, JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-
-    let handle = tokio::spawn(async move { server::run(listener, tokio::signal::ctrl_c()).await });
-
-    (addr, handle)
 }
