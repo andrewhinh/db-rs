@@ -177,6 +177,92 @@ impl Db {
             .count()
     }
 
+    /// Set a timeout on key.
+    ///
+    /// Returns `true` if the timeout was set, `false` if the key does not
+    /// exist.
+    pub(crate) fn expire(&self, key: &str, duration: Duration) -> bool {
+        let mut state = self.shared.state.lock().unwrap();
+        let key = key.to_string();
+        let now = Instant::now();
+
+        let prev_expires_at = match state.entries.get(&key) {
+            Some(entry) => {
+                if let Some(when) = entry.expires_at
+                    && when <= now
+                {
+                    state.entries.remove(&key);
+                    state.expirations.remove(&(when, key));
+                    return false;
+                }
+
+                entry.expires_at
+            }
+            None => return false,
+        };
+
+        let when = now + duration;
+        let notify = state
+            .next_expiration()
+            .map(|expiration| expiration > when)
+            .unwrap_or(true);
+
+        if let Some(prev) = prev_expires_at {
+            state.expirations.remove(&(prev, key.clone()));
+        }
+
+        if let Some(entry) = state.entries.get_mut(&key) {
+            entry.expires_at = Some(when);
+        }
+
+        state.expirations.insert((when, key));
+
+        drop(state);
+        if notify {
+            self.shared.background_task.notify_one();
+        }
+
+        true
+    }
+
+    /// Return the remaining time to live of a key, in seconds.
+    pub(crate) fn ttl(&self, key: &str) -> i64 {
+        self.remaining_ttl(key, false)
+    }
+
+    /// Return the remaining time to live of a key, in milliseconds.
+    pub(crate) fn pttl(&self, key: &str) -> i64 {
+        self.remaining_ttl(key, true)
+    }
+
+    fn remaining_ttl(&self, key: &str, in_millis: bool) -> i64 {
+        let mut state = self.shared.state.lock().unwrap();
+        let key = key.to_string();
+        let now = Instant::now();
+
+        let expires_at = match state.entries.get(&key) {
+            Some(entry) => entry.expires_at,
+            None => return -2,
+        };
+
+        let Some(expires_at) = expires_at else {
+            return -1;
+        };
+
+        if expires_at <= now {
+            state.entries.remove(&key);
+            state.expirations.remove(&(expires_at, key));
+            return -2;
+        }
+
+        let remaining = expires_at.duration_since(now);
+        if in_millis {
+            remaining.as_millis().try_into().unwrap_or(i64::MAX)
+        } else {
+            remaining.as_secs().try_into().unwrap_or(i64::MAX)
+        }
+    }
+
     /// Set the value associated with a key along with an optional expiration
     /// Duration.
     ///

@@ -116,6 +116,21 @@ impl BlockingClient {
         self.rt.block_on(self.inner.exists(keys))
     }
 
+    /// Set a timeout on key.
+    pub fn expire(&mut self, key: &str, seconds: u64) -> crate::Result<u64> {
+        self.rt.block_on(self.inner.expire(key, seconds))
+    }
+
+    /// Return the remaining time to live of a key, in seconds.
+    pub fn ttl(&mut self, key: &str) -> crate::Result<i64> {
+        self.rt.block_on(self.inner.ttl(key))
+    }
+
+    /// Return the remaining time to live of a key, in milliseconds.
+    pub fn pttl(&mut self, key: &str) -> crate::Result<i64> {
+        self.rt.block_on(self.inner.pttl(key))
+    }
+
     /// Set `key` to hold the given `value`.
     ///
     /// The `value` is associated with `key` until it is overwritten by the next

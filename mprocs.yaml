@@ -24,6 +24,11 @@ procs:
     shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example exists
     autostart: true
 
+  ttl:
+    cwd: .
+    shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example ttl
+    autostart: true
+
   sub:
     cwd: .
     shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example sub

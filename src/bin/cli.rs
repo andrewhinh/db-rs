@@ -40,6 +40,24 @@ enum Command {
         /// Keys to check
         keys: Vec<String>,
     },
+    /// Set a timeout on key.
+    Expire {
+        /// Name of key
+        key: String,
+
+        /// Timeout in seconds
+        seconds: u64,
+    },
+    /// Return the remaining time to live of a key, in seconds.
+    Ttl {
+        /// Name of key
+        key: String,
+    },
+    /// Return the remaining time to live of a key, in milliseconds.
+    Pttl {
+        /// Name of key
+        key: String,
+    },
     /// Set key to hold the string value.
     Set {
         /// Name of key to set
@@ -124,6 +142,18 @@ async fn main() -> db_rs::Result<()> {
             }
             let count = client.exists(&keys).await?;
             println!("{count}");
+        }
+        Command::Expire { key, seconds } => {
+            let updated = client.expire(&key, seconds).await?;
+            println!("{updated}");
+        }
+        Command::Ttl { key } => {
+            let ttl = client.ttl(&key).await?;
+            println!("{ttl}");
+        }
+        Command::Pttl { key } => {
+            let pttl = client.pttl(&key).await?;
+            println!("{pttl}");
         }
         Command::Set {
             key,

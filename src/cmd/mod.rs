@@ -7,6 +7,9 @@ pub use del::Del;
 mod exists;
 pub use exists::Exists;
 
+mod expire;
+pub use expire::Expire;
+
 mod publish;
 pub use publish::Publish;
 
@@ -18,6 +21,9 @@ pub use subscribe::{Subscribe, Unsubscribe};
 
 mod ping;
 pub use ping::Ping;
+
+mod ttl;
+pub use ttl::{Pttl, Ttl};
 
 mod unknown;
 pub use unknown::Unknown;
@@ -31,10 +37,13 @@ use crate::{Connection, Db, Frame, Parse, ParseError, Shutdown};
 pub enum Command {
     Del(Del),
     Exists(Exists),
+    Expire(Expire),
     Get(Get),
     Publish(Publish),
+    Pttl(Pttl),
     Set(Set),
     Subscribe(Subscribe),
+    Ttl(Ttl),
     Unsubscribe(Unsubscribe),
     Ping(Ping),
     Unknown(Unknown),
@@ -67,10 +76,13 @@ impl Command {
         let command = match &command_name[..] {
             "del" => Command::Del(Del::parse_frames(&mut parse)?),
             "exists" => Command::Exists(Exists::parse_frames(&mut parse)?),
+            "expire" => Command::Expire(Expire::parse_frames(&mut parse)?),
             "get" => Command::Get(Get::parse_frames(&mut parse)?),
+            "pttl" => Command::Pttl(Pttl::parse_frames(&mut parse)?),
             "publish" => Command::Publish(Publish::parse_frames(&mut parse)?),
             "set" => Command::Set(Set::parse_frames(&mut parse)?),
             "subscribe" => Command::Subscribe(Subscribe::parse_frames(&mut parse)?),
+            "ttl" => Command::Ttl(Ttl::parse_frames(&mut parse)?),
             "unsubscribe" => Command::Unsubscribe(Unsubscribe::parse_frames(&mut parse)?),
             "ping" => Command::Ping(Ping::parse_frames(&mut parse)?),
             _ => {
@@ -108,10 +120,13 @@ impl Command {
         match self {
             Del(cmd) => cmd.apply(db, dst).await,
             Exists(cmd) => cmd.apply(db, dst).await,
+            Expire(cmd) => cmd.apply(db, dst).await,
             Get(cmd) => cmd.apply(db, dst).await,
             Publish(cmd) => cmd.apply(db, dst).await,
+            Pttl(cmd) => cmd.apply(db, dst).await,
             Set(cmd) => cmd.apply(db, dst).await,
             Subscribe(cmd) => cmd.apply(db, dst, shutdown).await,
+            Ttl(cmd) => cmd.apply(db, dst).await,
             Ping(cmd) => cmd.apply(dst).await,
             Unknown(cmd) => cmd.apply(dst).await,
             // `Unsubscribe` cannot be applied. It may only be received from the
@@ -125,10 +140,13 @@ impl Command {
         match self {
             Command::Del(_) => "del",
             Command::Exists(_) => "exists",
+            Command::Expire(_) => "expire",
             Command::Get(_) => "get",
+            Command::Pttl(_) => "pttl",
             Command::Publish(_) => "pub",
             Command::Set(_) => "set",
             Command::Subscribe(_) => "subscribe",
+            Command::Ttl(_) => "ttl",
             Command::Unsubscribe(_) => "unsubscribe",
             Command::Ping(_) => "ping",
             Command::Unknown(cmd) => cmd.get_name(),

@@ -27,7 +27,7 @@ mprocs
 
 - [x] port mini-redis
 - [x] add DEL and EXISTS
-- [ ] add EXPIRE and TTL/PTTL
+- [x] add EXPIRE and TTL/PTTL
 - [ ] append AOF for mutating cmds
 - [ ] replay AOF on startup
 - [ ] snapshot and restore
