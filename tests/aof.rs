@@ -252,6 +252,105 @@ async fn aof_replay_rejects_unknown_command() {
     cleanup(&aof_path).await;
 }
 
+#[tokio::test]
+async fn aof_rewrite_compacts_history() {
+    let aof_path = temp_aof_path("rewrite-compacts-history");
+
+    {
+        let server = start_server_with_aof(aof_path.clone()).await;
+        let mut client = Client::connect(server.addr).await.unwrap();
+
+        client.set("z", "0".into()).await.unwrap();
+        client.set("a", "1".into()).await.unwrap();
+        client.set("a", "2".into()).await.unwrap();
+        client.set("b", "3".into()).await.unwrap();
+        assert_eq!(1, client.del(&["z".to_string()]).await.unwrap());
+
+        server.shutdown().await.unwrap();
+    }
+
+    let aof = tokio::fs::read(&aof_path).await.unwrap();
+    let expected = [
+        &b"*3\r\n$3\r\nset\r\n$1\r\na\r\n$1\r\n2\r\n"[..],
+        &b"*3\r\n$3\r\nset\r\n$1\r\nb\r\n$1\r\n3\r\n"[..],
+    ]
+    .concat();
+    assert_eq!(expected, aof);
+
+    cleanup(&aof_path).await;
+}
+
+#[tokio::test]
+async fn aof_rewrite_keeps_deleted_keys_deleted() {
+    let aof_path = temp_aof_path("rewrite-keeps-deleted");
+
+    {
+        let server = start_server_with_aof(aof_path.clone()).await;
+        let mut client = Client::connect(server.addr).await.unwrap();
+
+        client.set("live", "value".into()).await.unwrap();
+        client.set("gone", "value".into()).await.unwrap();
+        assert_eq!(1, client.del(&["gone".to_string()]).await.unwrap());
+
+        server.shutdown().await.unwrap();
+    }
+
+    let aof = tokio::fs::read_to_string(&aof_path).await.unwrap();
+    assert!(aof.contains("live"));
+    assert!(!aof.contains("gone"));
+
+    {
+        let server = start_server_with_aof(aof_path.clone()).await;
+        let mut client = Client::connect(server.addr).await.unwrap();
+
+        assert_eq!(
+            Some(Bytes::from("value")),
+            client.get("live").await.unwrap()
+        );
+        assert_eq!(None, client.get("gone").await.unwrap());
+
+        server.shutdown().await.unwrap();
+    }
+
+    cleanup(&aof_path).await;
+}
+
+#[tokio::test]
+async fn aof_rewrite_preserves_ttl_for_live_keys() {
+    let aof_path = temp_aof_path("rewrite-preserves-ttl");
+
+    {
+        let server = start_server_with_aof(aof_path.clone()).await;
+        let mut client = Client::connect(server.addr).await.unwrap();
+
+        client
+            .set_expires("expiring", "value".into(), Duration::from_secs(30))
+            .await
+            .unwrap();
+
+        server.shutdown().await.unwrap();
+    }
+
+    let aof = tokio::fs::read_to_string(&aof_path).await.unwrap();
+    assert!(aof.contains("px"));
+
+    {
+        let server = start_server_with_aof(aof_path.clone()).await;
+        let mut client = Client::connect(server.addr).await.unwrap();
+
+        assert_eq!(
+            Some(Bytes::from("value")),
+            client.get("expiring").await.unwrap()
+        );
+        let ttl = client.ttl("expiring").await.unwrap();
+        assert!(ttl > 0 && ttl <= 30, "ttl out of expected range: {ttl}");
+
+        server.shutdown().await.unwrap();
+    }
+
+    cleanup(&aof_path).await;
+}
+
 async fn start_server_with_aof(aof_path: PathBuf) -> TestServer {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

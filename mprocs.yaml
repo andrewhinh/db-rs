@@ -38,3 +38,23 @@ procs:
     cwd: .
     shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example pub
     autostart: true
+
+  aof-append:
+    cwd: .
+    shell: cargo run --example aof_append
+    autostart: true
+
+  aof-replay:
+    cwd: .
+    shell: cargo run --example aof_replay
+    autostart: true
+
+  snapshot-restore:
+    cwd: .
+    shell: cargo run --example snapshot_restore
+    autostart: true
+
+  aof-rewrite:
+    cwd: .
+    shell: cargo run --example aof_rewrite
+    autostart: true
