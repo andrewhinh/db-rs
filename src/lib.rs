@@ -38,6 +38,7 @@ pub mod frame;
 pub use frame::Frame;
 
 mod aof;
+mod replication;
 mod snapshot;
 
 mod db;

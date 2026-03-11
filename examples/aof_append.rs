@@ -21,6 +21,7 @@ pub async fn main() -> Result<()> {
     let config = ServerConfig {
         aof_path: Some(aof_path.clone()),
         snapshot_path: None,
+        ..Default::default()
     };
     let server = common::start_server(config).await?;
 

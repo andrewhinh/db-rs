@@ -248,7 +248,11 @@ impl Db {
         state.expirations.insert((when, key.clone()));
 
         drop(state);
-        self.shared.emit_change("expire", &key, None);
+        self.shared.emit_change(
+            "expire",
+            &key,
+            Some(Bytes::from(duration.as_millis().to_string())),
+        );
         if notify {
             self.shared.background_task.notify_one();
         }
@@ -358,6 +362,81 @@ impl Db {
             // Finally, only notify the background task if it needs to update
             // its state to reflect a new expiration.
             self.shared.background_task.notify_one();
+        }
+    }
+
+    /// Apply a change from replication without emitting to the change stream.
+    pub(crate) fn apply_change_quiet(&self, op: &str, key: &str, value: Option<Bytes>) {
+        use std::str;
+        let mut state = self.shared.state.lock().unwrap();
+        let key = key.to_string();
+        let now = Instant::now();
+
+        match op {
+            "set" => {
+                if let Some(v) = value {
+                    let prev = state.entries.insert(
+                        key.clone(),
+                        Entry {
+                            data: v,
+                            expires_at: None,
+                        },
+                    );
+                    if let Some(prev) = prev
+                        && let Some(when) = prev.expires_at
+                    {
+                        state.expirations.remove(&(when, key));
+                    }
+                }
+            }
+            "del" => {
+                if let Some(prev) = state.entries.remove(&key)
+                    && let Some(when) = prev.expires_at
+                {
+                    state.expirations.remove(&(when, key));
+                }
+            }
+            "expire" => {
+                let Some(ref v) = value else { return };
+                let ms: u64 = str::from_utf8(v)
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
+                if ms == 0 {
+                    return;
+                }
+                let prev_expires_at = match state.entries.get(&key) {
+                    Some(entry) => {
+                        if let Some(when) = entry.expires_at
+                            && when <= now
+                        {
+                            state.entries.remove(&key);
+                            state.expirations.remove(&(when, key));
+                            return;
+                        }
+                        entry.expires_at
+                    }
+                    None => return,
+                };
+                let duration = Duration::from_millis(ms);
+                let when = now + duration;
+                let notify = state
+                    .next_expiration()
+                    .map(|expiration| expiration > when)
+                    .unwrap_or(true);
+                if let Some(prev) = prev_expires_at {
+                    state.expirations.remove(&(prev, key.clone()));
+                }
+                if let Some(entry) = state.entries.get_mut(&key) {
+                    entry.expires_at = Some(when);
+                }
+                state.expirations.insert((when, key));
+                drop(state);
+                if notify {
+                    self.shared.background_task.notify_one();
+                }
+            }
+            _ => {}
         }
     }
 

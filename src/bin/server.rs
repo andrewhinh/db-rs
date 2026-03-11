@@ -19,9 +19,23 @@ pub async fn main() -> db_rs::Result<()> {
 
     let cli = Cli::parse();
     let port = cli.port.unwrap_or(DEFAULT_PORT);
+    let replicaof = cli.replicaof.as_ref().and_then(|s| {
+        let parts: Vec<&str> = s.splitn(2, &[':', ' '][..]).collect();
+        if parts.len() == 2 {
+            parts[1]
+                .parse()
+                .ok()
+                .map(|port| (parts[0].to_string(), port))
+        } else if parts.len() == 1 && !parts[0].is_empty() {
+            Some((parts[0].to_string(), DEFAULT_PORT))
+        } else {
+            None
+        }
+    });
     let config = server::ServerConfig {
         aof_path: cli.aof_path,
         snapshot_path: cli.snapshot_path,
+        replicaof,
     };
 
     // Bind a TCP listener
@@ -43,6 +57,12 @@ struct Cli {
 
     #[arg(long)]
     snapshot_path: Option<PathBuf>,
+
+    #[arg(
+        long,
+        help = "Replicate from leader, e.g. 127.0.0.1:6379 or 127.0.0.1 6379"
+    )]
+    replicaof: Option<String>,
 }
 
 fn set_up_logging() -> db_rs::Result<()> {
