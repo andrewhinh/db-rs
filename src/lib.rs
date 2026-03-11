@@ -26,7 +26,7 @@
 //!   representation.
 
 pub mod clients;
-pub use clients::{BlockingClient, BufferedClient, Client};
+pub use clients::{BlockingClient, BufferedClient, Client, SessionClient};
 
 pub mod cmd;
 pub use cmd::Command;

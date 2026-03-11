@@ -1,5 +1,5 @@
 use std::collections::{BTreeSet, HashMap};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
@@ -61,6 +61,7 @@ struct Shared {
     background_task: Notify,
     change_tx: broadcast::Sender<Bytes>,
     next_offset: AtomicU64,
+    repl_applied_offset: AtomicI64,
 }
 
 #[derive(Debug)]
@@ -145,6 +146,7 @@ impl Db {
             background_task: Notify::new(),
             change_tx,
             next_offset: AtomicU64::new(0),
+            repl_applied_offset: AtomicI64::new(-1),
         });
 
         // Start the background task.
@@ -159,7 +161,15 @@ impl Db {
 
     pub(crate) fn current_offset(&self) -> i64 {
         let n = self.shared.next_offset.load(Ordering::SeqCst);
-        n.saturating_sub(1) as i64
+        let leader = n.saturating_sub(1) as i64;
+        let repl = self.shared.repl_applied_offset.load(Ordering::SeqCst);
+        leader.max(repl)
+    }
+
+    pub(crate) fn set_applied_offset(&self, offset: i64) {
+        self.shared
+            .repl_applied_offset
+            .store(offset, Ordering::SeqCst);
     }
 
     /// Get the value associated with a key.
@@ -366,7 +376,14 @@ impl Db {
     }
 
     /// Apply a change from replication without emitting to the change stream.
-    pub(crate) fn apply_change_quiet(&self, op: &str, key: &str, value: Option<Bytes>) {
+    pub(crate) fn apply_change_quiet(
+        &self,
+        op: &str,
+        key: &str,
+        value: Option<Bytes>,
+        offset: i64,
+    ) {
+        self.set_applied_offset(offset);
         use std::str;
         let mut state = self.shared.state.lock().unwrap();
         let key = key.to_string();
