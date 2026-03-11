@@ -42,6 +42,11 @@ impl Expire {
         Ok(())
     }
 
+    pub(crate) fn apply_for_replay(self, db: &Db) -> crate::Result<()> {
+        db.expire(&self.key, Duration::from_secs(self.seconds));
+        Ok(())
+    }
+
     /// Converts the command into an equivalent `Frame`.
     pub(crate) fn into_frame(self) -> Frame {
         let mut frame = Frame::array();

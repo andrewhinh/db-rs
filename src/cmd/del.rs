@@ -48,6 +48,11 @@ impl Del {
         Ok(())
     }
 
+    pub(crate) fn apply_for_replay(self, db: &Db) -> crate::Result<()> {
+        db.del_many(&self.keys);
+        Ok(())
+    }
+
     /// Converts the command into an equivalent `Frame`.
     pub(crate) fn into_frame(self) -> Frame {
         let mut frame = Frame::array();

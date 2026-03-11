@@ -1,12 +1,13 @@
-use std::io::{self, Write as _};
+use std::io::{self, Cursor, ErrorKind, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio::fs::{File, OpenOptions};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
+use tracing::warn;
 
-use crate::Frame;
+use crate::{Command, Db, Frame, frame};
 
 #[derive(Debug, Clone)]
 pub(crate) struct AofAppender {
@@ -43,6 +44,57 @@ impl AofAppender {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct ReplayStats {
+    pub(crate) applied_commands: usize,
+    pub(crate) truncated_tail_bytes: usize,
+}
+
+pub(crate) async fn replay_from_path(
+    path: impl AsRef<Path>,
+    db: &Db,
+) -> crate::Result<ReplayStats> {
+    let path = path.as_ref();
+
+    let contents = match tokio::fs::read(path).await {
+        Ok(contents) => contents,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(ReplayStats::default()),
+        Err(err) => return Err(err.into()),
+    };
+
+    replay_bytes(&contents, db)
+}
+
+fn replay_bytes(contents: &[u8], db: &Db) -> crate::Result<ReplayStats> {
+    let mut stats = ReplayStats::default();
+    let mut cursor = Cursor::new(contents);
+
+    while cursor.position() as usize != contents.len() {
+        let start = cursor.position() as usize;
+
+        match Frame::check(&mut cursor) {
+            Ok(()) => {
+                cursor.set_position(start as u64);
+                let frame = Frame::parse(&mut cursor)?;
+                let command = Command::from_frame(frame)?;
+                command.apply_for_replay(db)?;
+                stats.applied_commands += 1;
+            }
+            Err(frame::Error::Incomplete) => {
+                stats.truncated_tail_bytes = contents.len() - start;
+                warn!(
+                    truncated_tail_bytes = stats.truncated_tail_bytes,
+                    "ignoring truncated AOF tail during replay"
+                );
+                break;
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+
+    Ok(stats)
 }
 
 fn encode_frame(frame: &Frame, dst: &mut Vec<u8>) -> io::Result<()> {

@@ -156,4 +156,13 @@ impl Command {
     pub(crate) fn should_append_to_aof(&self) -> bool {
         matches!(self, Command::Set(_) | Command::Del(_) | Command::Expire(_))
     }
+
+    pub(crate) fn apply_for_replay(self, db: &Db) -> crate::Result<()> {
+        match self {
+            Command::Set(cmd) => cmd.apply_for_replay(db),
+            Command::Del(cmd) => cmd.apply_for_replay(db),
+            Command::Expire(cmd) => cmd.apply_for_replay(db),
+            _ => Err("unsupported command in AOF replay".into()),
+        }
+    }
 }
