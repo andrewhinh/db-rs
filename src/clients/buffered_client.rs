@@ -13,6 +13,9 @@ enum Command {
     Set(String, Bytes),
     Del(Vec<String>),
     Exists(Vec<String>),
+    Expire(String, u64),
+    Ttl(String),
+    Pttl(String),
 }
 
 #[derive(Debug)]
@@ -20,6 +23,7 @@ enum Response {
     Value(Option<Bytes>),
     Unit,
     Count(u64),
+    Signed(i64),
 }
 
 // Message type sent over the channel to the connection task.
@@ -44,6 +48,11 @@ async fn run(mut client: Client, mut rx: Receiver<Message>) {
             Command::Set(key, value) => client.set(&key, value).await.map(|_| Response::Unit),
             Command::Del(keys) => client.del(&keys).await.map(Response::Count),
             Command::Exists(keys) => client.exists(&keys).await.map(Response::Count),
+            Command::Expire(key, seconds) => {
+                client.expire(&key, seconds).await.map(Response::Count)
+            }
+            Command::Ttl(key) => client.ttl(&key).await.map(Response::Signed),
+            Command::Pttl(key) => client.pttl(&key).await.map(Response::Signed),
         };
 
         // Send the response back to the caller.
@@ -171,6 +180,60 @@ impl BufferedClient {
             Ok(res) => match res? {
                 Response::Count(count) => Ok(count),
                 _ => Err("unexpected response for EXISTS".into()),
+            },
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    /// Set a timeout on key.
+    ///
+    /// Requests are buffered until the associated connection can send.
+    pub async fn expire(&mut self, key: &str, seconds: u64) -> Result<u64> {
+        let expire = Command::Expire(key.into(), seconds);
+        let (tx, rx) = oneshot::channel();
+
+        self.tx.send((expire, tx)).await?;
+
+        match rx.await {
+            Ok(res) => match res? {
+                Response::Count(count) => Ok(count),
+                _ => Err("unexpected response for EXPIRE".into()),
+            },
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    /// Return the remaining time to live of a key, in seconds.
+    ///
+    /// Requests are buffered until the associated connection can send.
+    pub async fn ttl(&mut self, key: &str) -> Result<i64> {
+        let ttl = Command::Ttl(key.into());
+        let (tx, rx) = oneshot::channel();
+
+        self.tx.send((ttl, tx)).await?;
+
+        match rx.await {
+            Ok(res) => match res? {
+                Response::Signed(value) => Ok(value),
+                _ => Err("unexpected response for TTL".into()),
+            },
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    /// Return the remaining time to live of a key, in milliseconds.
+    ///
+    /// Requests are buffered until the associated connection can send.
+    pub async fn pttl(&mut self, key: &str) -> Result<i64> {
+        let pttl = Command::Pttl(key.into());
+        let (tx, rx) = oneshot::channel();
+
+        self.tx.send((pttl, tx)).await?;
+
+        match rx.await {
+            Ok(res) => match res? {
+                Response::Signed(value) => Ok(value),
+                _ => Err("unexpected response for PTTL".into()),
             },
             Err(err) => Err(err.into()),
         }

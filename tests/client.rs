@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use db_rs::{clients::Client, server};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
+use tokio::time::{self, Duration};
 
 /// A PING PONG test without message provided.
 /// It should return "PONG".
@@ -65,6 +66,40 @@ async fn key_value_exists_del() {
 
     let exists = client.exists(&["foo".into(), "foo".into()]).await.unwrap();
     assert_eq!(2, exists);
+}
+
+#[tokio::test]
+async fn key_value_expire_ttl_pttl() {
+    let (addr, _) = start_server().await;
+
+    let mut client = Client::connect(addr).await.unwrap();
+
+    let ttl = client.ttl("hello").await.unwrap();
+    assert_eq!(-2, ttl);
+
+    client.set("hello", "world".into()).await.unwrap();
+    let ttl = client.ttl("hello").await.unwrap();
+    assert_eq!(-1, ttl);
+
+    let updated = client.expire("hello", 2).await.unwrap();
+    assert_eq!(1, updated);
+
+    let ttl = client.ttl("hello").await.unwrap();
+    assert!((0..=2).contains(&ttl));
+
+    let pttl = client.pttl("hello").await.unwrap();
+    assert!((1..=2000).contains(&pttl));
+
+    time::sleep(Duration::from_millis(2200)).await;
+
+    let ttl = client.ttl("hello").await.unwrap();
+    assert_eq!(-2, ttl);
+
+    let pttl = client.pttl("hello").await.unwrap();
+    assert_eq!(-2, pttl);
+
+    let value = client.get("hello").await.unwrap();
+    assert!(value.is_none());
 }
 
 /// similar to the "hello world" style test, But this time

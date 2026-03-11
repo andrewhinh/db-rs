@@ -156,6 +156,67 @@ async fn key_value_timeout() {
 }
 
 #[tokio::test]
+async fn key_value_expire_ttl_pttl() {
+    let addr = start_server().await;
+
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    stream
+        .write_all(b"*2\r\n$3\r\nTTL\r\n$5\r\nhello\r\n")
+        .await
+        .unwrap();
+    assert_eq!(-2, read_integer_response(&mut stream).await);
+
+    stream
+        .write_all(b"*3\r\n$3\r\nSET\r\n$5\r\nhello\r\n$5\r\nworld\r\n")
+        .await
+        .unwrap();
+    let mut response = [0; 5];
+    stream.read_exact(&mut response).await.unwrap();
+    assert_eq!(b"+OK\r\n", &response);
+
+    stream
+        .write_all(b"*2\r\n$3\r\nTTL\r\n$5\r\nhello\r\n")
+        .await
+        .unwrap();
+    assert_eq!(-1, read_integer_response(&mut stream).await);
+
+    stream
+        .write_all(b"*3\r\n$6\r\nEXPIRE\r\n$5\r\nhello\r\n$1\r\n5\r\n")
+        .await
+        .unwrap();
+    assert_eq!(1, read_integer_response(&mut stream).await);
+
+    stream
+        .write_all(b"*2\r\n$3\r\nTTL\r\n$5\r\nhello\r\n")
+        .await
+        .unwrap();
+    let ttl = read_integer_response(&mut stream).await;
+    assert!((0..=5).contains(&ttl));
+
+    stream
+        .write_all(b"*2\r\n$4\r\nPTTL\r\n$5\r\nhello\r\n")
+        .await
+        .unwrap();
+    let pttl = read_integer_response(&mut stream).await;
+    assert!((1..=5000).contains(&pttl));
+
+    time::sleep(Duration::from_millis(5200)).await;
+
+    stream
+        .write_all(b"*2\r\n$3\r\nTTL\r\n$5\r\nhello\r\n")
+        .await
+        .unwrap();
+    assert_eq!(-2, read_integer_response(&mut stream).await);
+
+    stream
+        .write_all(b"*3\r\n$6\r\nEXPIRE\r\n$7\r\nmissing\r\n$2\r\n10\r\n")
+        .await
+        .unwrap();
+    assert_eq!(0, read_integer_response(&mut stream).await);
+}
+
+#[tokio::test]
 async fn key_value_del_ttl() {
     let addr = start_server().await;
 
@@ -496,4 +557,23 @@ async fn start_server() -> SocketAddr {
     tokio::spawn(async move { server::run(listener, tokio::signal::ctrl_c()).await });
 
     addr
+}
+
+async fn read_integer_response(stream: &mut TcpStream) -> i64 {
+    let mut line = Vec::new();
+
+    loop {
+        let mut byte = [0; 1];
+        stream.read_exact(&mut byte).await.unwrap();
+        line.push(byte[0]);
+        if line.ends_with(b"\r\n") {
+            break;
+        }
+    }
+
+    assert_eq!(line[0], b':');
+    std::str::from_utf8(&line[1..line.len() - 2])
+        .unwrap()
+        .parse::<i64>()
+        .unwrap()
 }

@@ -43,7 +43,7 @@ impl Exists {
     /// Apply the `Exists` command to the specified `Db` instance.
     pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<()> {
         let count = db.exists_many(&self.keys);
-        let response = Frame::Integer(count as u64);
+        let response = Frame::Integer(count as i64);
         dst.write_frame(&response).await?;
         Ok(())
     }

@@ -11,7 +11,7 @@ use tokio::net::{TcpStream, ToSocketAddrs};
 use tokio_stream::Stream;
 use tracing::{debug, instrument};
 
-use crate::cmd::{Del, Exists, Get, Ping, Publish, Set, Subscribe, Unsubscribe};
+use crate::cmd::{Del, Exists, Expire, Get, Ping, Pttl, Publish, Set, Subscribe, Ttl, Unsubscribe};
 use crate::{Connection, Frame};
 
 /// Established connection with a Redis server.
@@ -175,7 +175,9 @@ impl Client {
         self.connection.write_frame(&frame).await?;
 
         match self.read_response().await? {
-            Frame::Integer(value) => Ok(value),
+            Frame::Integer(value) => value
+                .try_into()
+                .map_err(|_| "invalid integer response".into()),
             frame => Err(frame.to_error()),
         }
     }
@@ -184,6 +186,51 @@ impl Client {
     #[instrument(skip(self))]
     pub async fn exists(&mut self, keys: &[String]) -> crate::Result<u64> {
         let frame = Exists::new(keys).into_frame();
+        debug!(request = ?frame);
+        self.connection.write_frame(&frame).await?;
+
+        match self.read_response().await? {
+            Frame::Integer(value) => value
+                .try_into()
+                .map_err(|_| "invalid integer response".into()),
+            frame => Err(frame.to_error()),
+        }
+    }
+
+    /// Set a timeout on key.
+    ///
+    /// Returns `1` if the timeout was set, `0` if key does not exist.
+    #[instrument(skip(self))]
+    pub async fn expire(&mut self, key: &str, seconds: u64) -> crate::Result<u64> {
+        let frame = Expire::new(key, seconds).into_frame();
+        debug!(request = ?frame);
+        self.connection.write_frame(&frame).await?;
+
+        match self.read_response().await? {
+            Frame::Integer(value) => value
+                .try_into()
+                .map_err(|_| "invalid integer response".into()),
+            frame => Err(frame.to_error()),
+        }
+    }
+
+    /// Return the remaining time to live of a key, in seconds.
+    #[instrument(skip(self))]
+    pub async fn ttl(&mut self, key: &str) -> crate::Result<i64> {
+        let frame = Ttl::new(key).into_frame();
+        debug!(request = ?frame);
+        self.connection.write_frame(&frame).await?;
+
+        match self.read_response().await? {
+            Frame::Integer(value) => Ok(value),
+            frame => Err(frame.to_error()),
+        }
+    }
+
+    /// Return the remaining time to live of a key, in milliseconds.
+    #[instrument(skip(self))]
+    pub async fn pttl(&mut self, key: &str) -> crate::Result<i64> {
+        let frame = Pttl::new(key).into_frame();
         debug!(request = ?frame);
         self.connection.write_frame(&frame).await?;
 
@@ -333,7 +380,9 @@ impl Client {
 
         // Read the response
         match self.read_response().await? {
-            Frame::Integer(response) => Ok(response),
+            Frame::Integer(response) => response
+                .try_into()
+                .map_err(|_| "invalid integer response".into()),
             frame => Err(frame.to_error()),
         }
     }
