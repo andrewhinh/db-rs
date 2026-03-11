@@ -107,6 +107,7 @@ async fn start_server_with_snapshot(snapshot_path: PathBuf) -> TestServer {
         aof_path: None,
         snapshot_path: Some(snapshot_path),
         replicaof: None,
+        repl_offset_path: None,
     };
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 

@@ -35,7 +35,8 @@ pub async fn main() -> db_rs::Result<()> {
     let config = server::ServerConfig {
         aof_path: cli.aof_path,
         snapshot_path: cli.snapshot_path,
-        replicaof,
+        replicaof: replicaof.clone(),
+        repl_offset_path: cli.repl_offset_path,
     };
 
     // Bind a TCP listener
@@ -63,6 +64,12 @@ struct Cli {
         help = "Replicate from leader, e.g. 127.0.0.1:6379 or 127.0.0.1 6379"
     )]
     replicaof: Option<String>,
+
+    #[arg(
+        long,
+        help = "Path to persist last applied offset (use with replicaof)"
+    )]
+    repl_offset_path: Option<PathBuf>,
 }
 
 fn set_up_logging() -> db_rs::Result<()> {

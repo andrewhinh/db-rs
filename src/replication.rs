@@ -1,4 +1,5 @@
 use std::io::Cursor;
+use std::path::PathBuf;
 
 use bytes::Bytes;
 use tokio::sync::broadcast;
@@ -9,7 +10,7 @@ use crate::{Db, Frame};
 
 const CHANGES_BOOTSTRAP_CHANNEL: &str = "__changes__@boot";
 
-fn parse_change(bytes: &[u8]) -> Option<(String, String, Option<Bytes>)> {
+fn parse_change(bytes: &[u8]) -> Option<(i64, String, String, Option<Bytes>)> {
     let mut cur = Cursor::new(bytes);
     let frame = Frame::parse(&mut cur).ok()?;
     let Frame::Array(arr) = frame else {
@@ -18,6 +19,10 @@ fn parse_change(bytes: &[u8]) -> Option<(String, String, Option<Bytes>)> {
     if arr.len() < 4 {
         return None;
     }
+    let offset = match &arr[0] {
+        Frame::Integer(n) => *n,
+        _ => return None,
+    };
     let op = match &arr[1] {
         Frame::Simple(s) => s.clone(),
         _ => return None,
@@ -31,16 +36,23 @@ fn parse_change(bytes: &[u8]) -> Option<(String, String, Option<Bytes>)> {
         Frame::Bulk(b) => Some(b.clone()),
         _ => return None,
     };
-    Some((op, key, value))
+    Some((offset, op, key, value))
 }
 
 pub(crate) async fn run_follower(
     leader_addr: (String, u16),
     db: Db,
     mut shutdown: broadcast::Receiver<()>,
+    repl_offset_path: Option<PathBuf>,
 ) {
     let addr = format!("{}:{}", leader_addr.0, leader_addr.1);
     info!(addr = %addr, "replication starting");
+
+    let mut last_applied = repl_offset_path
+        .as_ref()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(-1);
 
     loop {
         let client = match Client::connect(&addr).await {
@@ -70,6 +82,9 @@ pub(crate) async fn run_follower(
             }
         };
 
+        let mut in_snapshot = true;
+        let mut first_offset: Option<i64> = None;
+
         loop {
             tokio::select! {
                 msg = subscriber.next_message() => {
@@ -77,8 +92,35 @@ pub(crate) async fn run_follower(
                         debug!("replication stream ended");
                         break;
                     };
-                    if let Some((op, key, value)) = parse_change(&msg.content) {
-                        db.apply_change_quiet(&op, &key, value);
+                    if let Some((offset, op, key, value)) = parse_change(&msg.content) {
+                        let applied = if in_snapshot {
+                            if first_offset.is_none() {
+                                first_offset = Some(offset);
+                            }
+                            if offset == first_offset.unwrap() {
+                                db.apply_change_quiet(&op, &key, value);
+                                false
+                            } else {
+                                in_snapshot = false;
+                                if offset > last_applied {
+                                    db.apply_change_quiet(&op, &key, value);
+                                    last_applied = offset;
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                        } else if offset > last_applied {
+                            db.apply_change_quiet(&op, &key, value);
+                            last_applied = offset;
+                            true
+                        } else {
+                            false
+                        };
+
+                        if applied && let Some(ref p) = repl_offset_path {
+                            let _ = std::fs::write(p, last_applied.to_string());
+                        }
                     }
                 }
                 _ = shutdown.recv() => {
