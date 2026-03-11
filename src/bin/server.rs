@@ -6,6 +6,8 @@
 //!
 //! The `clap` crate is used for parsing arguments.
 
+use std::path::PathBuf;
+
 use clap::Parser;
 use db_rs::{DEFAULT_PORT, server};
 use tokio::net::TcpListener;
@@ -17,11 +19,14 @@ pub async fn main() -> db_rs::Result<()> {
 
     let cli = Cli::parse();
     let port = cli.port.unwrap_or(DEFAULT_PORT);
+    let config = server::ServerConfig {
+        aof_path: cli.aof_path,
+    };
 
     // Bind a TCP listener
     let listener = TcpListener::bind(&format!("127.0.0.1:{}", port)).await?;
 
-    server::run(listener, signal::ctrl_c()).await;
+    server::run_with_config(listener, signal::ctrl_c(), config).await?;
 
     Ok(())
 }
@@ -31,6 +36,9 @@ pub async fn main() -> db_rs::Result<()> {
 struct Cli {
     #[arg(long)]
     port: Option<u16>,
+
+    #[arg(long)]
+    aof_path: Option<PathBuf>,
 }
 
 fn set_up_logging() -> db_rs::Result<()> {

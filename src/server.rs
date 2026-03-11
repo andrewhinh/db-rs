@@ -4,6 +4,7 @@
 //! spawning a task per connection.
 
 use std::future::Future;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::net::{TcpListener, TcpStream};
@@ -11,6 +12,7 @@ use tokio::sync::{Semaphore, broadcast, mpsc};
 use tokio::time::{self, Duration};
 use tracing::{debug, error, info, instrument};
 
+use crate::aof::AofAppender;
 use crate::{Command, Connection, Db, DbDropGuard, Shutdown};
 
 /// Server listener state. Created in the `run` call. It includes a `run` method
@@ -62,6 +64,9 @@ struct Listener {
     /// `shutdown_complete_rx.recv()` completing with `None`. At this point, it
     /// is safe to exit the server process.
     shutdown_complete_tx: mpsc::Sender<()>,
+
+    /// Append-only file appender for mutating commands.
+    aof: Option<AofAppender>,
 }
 
 /// Per-connection handler. Reads requests from `connection` and applies the
@@ -96,6 +101,9 @@ struct Handler {
 
     /// Not used directly. Instead, when `Handler` is dropped...?
     _shutdown_complete: mpsc::Sender<()>,
+
+    /// Append-only file appender for mutating commands.
+    aof: Option<AofAppender>,
 }
 
 /// Maximum number of concurrent connections the redis server will accept.
@@ -112,6 +120,11 @@ struct Handler {
 /// well).
 const MAX_CONNECTIONS: usize = 250;
 
+#[derive(Debug, Clone, Default)]
+pub struct ServerConfig {
+    pub aof_path: Option<PathBuf>,
+}
+
 /// Run the db-rs server.
 ///
 /// Accepts connections from the supplied listener. For each inbound connection,
@@ -122,6 +135,24 @@ const MAX_CONNECTIONS: usize = 250;
 /// `tokio::signal::ctrl_c()` can be used as the `shutdown` argument. This will
 /// listen for a SIGINT signal.
 pub async fn run(listener: TcpListener, shutdown: impl Future) {
+    if let Err(err) = run_with_config(listener, shutdown, ServerConfig::default()).await {
+        error!(cause = %err, "server exited with error");
+    }
+}
+
+pub async fn run_with_config(
+    listener: TcpListener,
+    shutdown: impl Future,
+    config: ServerConfig,
+) -> crate::Result<()> {
+    let aof = match config.aof_path {
+        Some(path) => Some(AofAppender::open(path).await?),
+        None => None,
+    };
+    if let Some(aof) = &aof {
+        info!(path = ?aof.path(), "append-only file enabled");
+    }
+
     // When the provided `shutdown` future completes, we must send a shutdown
     // message to all active connections. We use a broadcast channel for this
     // purpose. The call below ignores the receiver of the broadcast pair, and when
@@ -137,6 +168,7 @@ pub async fn run(listener: TcpListener, shutdown: impl Future) {
         limit_connections: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
         notify_shutdown,
         shutdown_complete_tx,
+        aof,
     };
 
     // Concurrently run the server and listen for the `shutdown` signal. The
@@ -166,9 +198,7 @@ pub async fn run(listener: TcpListener, shutdown: impl Future) {
             //
             // Errors encountered when handling individual connections do not
             // bubble up to this point.
-            if let Err(err) = res {
-                error!(cause = %err, "failed to accept");
-            }
+            res?;
         }
         _ = shutdown => {
             // The shutdown signal has been received.
@@ -196,6 +226,8 @@ pub async fn run(listener: TcpListener, shutdown: impl Future) {
     // `Sender` instances are held by connection handler tasks. When those drop,
     // the `mpsc` channel will close and `recv()` will return `None`.
     let _ = shutdown_complete_rx.recv().await;
+
+    Ok(())
 }
 
 impl Listener {
@@ -253,6 +285,8 @@ impl Listener {
                 // Notifies the receiver half once all clones are
                 // dropped.
                 _shutdown_complete: self.shutdown_complete_tx.clone(),
+
+                aof: self.aof.clone(),
             };
 
             // Spawn a new task to process the connections. Tokio tasks are like
@@ -342,7 +376,7 @@ impl Handler {
             // Convert the redis frame into a command struct. This returns an
             // error if the frame is not a valid redis command or it is an
             // unsupported command.
-            let cmd = Command::from_frame(frame)?;
+            let cmd = Command::from_frame(frame.clone())?;
 
             // Logs the `cmd` object. The syntax here is a shorthand provided by
             // the `tracing` crate. It can be thought of as similar to:
@@ -354,6 +388,12 @@ impl Handler {
             // `tracing` provides structured logging, so information is "logged"
             // as key-value pairs.
             debug!(?cmd);
+
+            if cmd.should_append_to_aof()
+                && let Some(aof) = &self.aof
+            {
+                aof.append_frame(&frame).await?;
+            }
 
             // Perform the work needed to apply the command. This may mutate the
             // database state as a result.

@@ -143,7 +143,7 @@ impl Command {
             Command::Expire(_) => "expire",
             Command::Get(_) => "get",
             Command::Pttl(_) => "pttl",
-            Command::Publish(_) => "pub",
+            Command::Publish(_) => "publish",
             Command::Set(_) => "set",
             Command::Subscribe(_) => "subscribe",
             Command::Ttl(_) => "ttl",
@@ -151,5 +151,9 @@ impl Command {
             Command::Ping(_) => "ping",
             Command::Unknown(cmd) => cmd.get_name(),
         }
+    }
+
+    pub(crate) fn should_append_to_aof(&self) -> bool {
+        matches!(self, Command::Set(_) | Command::Del(_) | Command::Expire(_))
     }
 }
