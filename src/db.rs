@@ -151,6 +151,32 @@ impl Db {
         state.entries.get(key).map(|entry| entry.data.clone())
     }
 
+    /// Delete one or more keys and return the number of deleted keys.
+    pub(crate) fn del_many(&self, keys: &[String]) -> usize {
+        let mut state = self.shared.state.lock().unwrap();
+        let mut removed = 0;
+
+        for key in keys {
+            if let Some(prev) = state.entries.remove(key) {
+                removed += 1;
+
+                if let Some(when) = prev.expires_at {
+                    state.expirations.remove(&(when, key.clone()));
+                }
+            }
+        }
+
+        removed
+    }
+
+    /// Return the number of keys that currently exist.
+    pub(crate) fn exists_many(&self, keys: &[String]) -> usize {
+        let state = self.shared.state.lock().unwrap();
+        keys.iter()
+            .filter(|key| state.entries.contains_key(*key))
+            .count()
+    }
+
     /// Set the value associated with a key along with an optional expiration
     /// Duration.
     ///

@@ -40,6 +40,33 @@ async fn key_value_get_set() {
     assert_eq!(b"world", &value[..])
 }
 
+#[tokio::test]
+async fn key_value_exists_del() {
+    let (addr, _) = start_server().await;
+
+    let mut client = Client::connect(addr).await.unwrap();
+    client.set("hello", "world".into()).await.unwrap();
+    client.set("foo", "bar".into()).await.unwrap();
+
+    let exists = client
+        .exists(&["hello".into(), "foo".into(), "missing".into()])
+        .await
+        .unwrap();
+    assert_eq!(2, exists);
+
+    let removed = client
+        .del(&["hello".into(), "missing".into(), "hello".into()])
+        .await
+        .unwrap();
+    assert_eq!(1, removed);
+
+    let value = client.get("hello").await.unwrap();
+    assert!(value.is_none());
+
+    let exists = client.exists(&["foo".into(), "foo".into()]).await.unwrap();
+    assert_eq!(2, exists);
+}
+
 /// similar to the "hello world" style test, But this time
 /// a single channel subscription will be tested instead
 #[tokio::test]
