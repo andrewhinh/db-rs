@@ -6,20 +6,30 @@ procs:
 
   cli:
     cwd: .
-    shell: cargo run --bin db-rs-cli set foo bar && cargo run --bin db-rs-cli get foo
+    shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --bin db-rs-cli set foo bar && cargo run --bin db-rs-cli get foo
     autostart: true
 
   hello-world:
     cwd: .
-    shell: cargo run --example hello_world
+    shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example hello_world
     autostart: true
 
-  pub:
+  del:
     cwd: .
-    shell: cargo run --example pub
+    shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example del
+    autostart: true
+
+  exists:
+    cwd: .
+    shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example exists
     autostart: true
 
   sub:
     cwd: .
-    shell: cargo run --example sub
+    shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example sub
+    autostart: true
+
+  pub:
+    cwd: .
+    shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example pub
     autostart: true
