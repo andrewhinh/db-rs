@@ -29,7 +29,7 @@ mprocs
 - [x] add DEL and EXISTS
 - [x] add EXPIRE and TTL/PTTL
 - [x] append AOF for mutating cmds
-- [ ] replay AOF on startup
+- [x] replay AOF on startup
 - [ ] snapshot and restore
 - [ ] AOF rewrite and tombstones
 - [ ] ordered change stream

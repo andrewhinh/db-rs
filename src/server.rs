@@ -12,7 +12,7 @@ use tokio::sync::{Semaphore, broadcast, mpsc};
 use tokio::time::{self, Duration};
 use tracing::{debug, error, info, instrument};
 
-use crate::aof::AofAppender;
+use crate::aof::{AofAppender, replay_from_path};
 use crate::{Command, Connection, Db, DbDropGuard, Shutdown};
 
 /// Server listener state. Created in the `run` call. It includes a `run` method
@@ -145,7 +145,20 @@ pub async fn run_with_config(
     shutdown: impl Future,
     config: ServerConfig,
 ) -> crate::Result<()> {
-    let aof = match config.aof_path {
+    let db_holder = DbDropGuard::new();
+    let aof_path = config.aof_path;
+
+    if let Some(path) = aof_path.as_ref() {
+        let replay_stats = replay_from_path(path, &db_holder.db()).await?;
+        info!(
+            path = ?path,
+            applied_commands = replay_stats.applied_commands,
+            truncated_tail_bytes = replay_stats.truncated_tail_bytes,
+            "AOF replay finished"
+        );
+    }
+
+    let aof = match aof_path {
         Some(path) => Some(AofAppender::open(path).await?),
         None => None,
     };
@@ -164,7 +177,7 @@ pub async fn run_with_config(
     // Initialize the listener state
     let mut server = Listener {
         listener,
-        db_holder: DbDropGuard::new(),
+        db_holder,
         limit_connections: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
         notify_shutdown,
         shutdown_complete_tx,

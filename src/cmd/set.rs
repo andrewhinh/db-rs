@@ -138,6 +138,11 @@ impl Set {
         Ok(())
     }
 
+    pub(crate) fn apply_for_replay(self, db: &Db) -> crate::Result<()> {
+        db.set(self.key, self.value, self.expire);
+        Ok(())
+    }
+
     /// Converts the command into an equivalent `Frame`.
     ///
     /// This is called by the client when encoding a `Set` command to send to
