@@ -12,7 +12,7 @@ use tokio::sync::{Semaphore, broadcast, mpsc};
 use tokio::time::{self, Duration};
 use tracing::{debug, error, info, instrument};
 
-use crate::aof::{AofAppender, replay_from_path};
+use crate::aof::{AofAppender, replay_from_path, rewrite_from_db};
 use crate::snapshot::write_to_path;
 use crate::{Command, Connection, Db, DbDropGuard, Shutdown};
 
@@ -152,6 +152,7 @@ pub async fn run_with_config(
         aof_path,
         snapshot_path,
     } = config;
+    let aof_rewrite_path = aof_path.clone();
 
     if let Some(path) = snapshot_path.as_ref() {
         let replay_stats = replay_from_path(path, &db_holder.db()).await?;
@@ -255,6 +256,17 @@ pub async fn run_with_config(
     // `Sender` instances are held by connection handler tasks. When those drop,
     // the `mpsc` channel will close and `recv()` will return `None`.
     let _ = shutdown_complete_rx.recv().await;
+
+    if let Some(path) = aof_rewrite_path.as_ref() {
+        let rewrite_stats = rewrite_from_db(path, &db_holder.db()).await?;
+        info!(
+            path = ?path,
+            written_commands = rewrite_stats.written_commands,
+            old_bytes = rewrite_stats.old_bytes,
+            new_bytes = rewrite_stats.new_bytes,
+            "AOF rewrite finished"
+        );
+    }
 
     if let Some(path) = snapshot_path.as_ref() {
         let snapshot_stats = write_to_path(path, &db_holder.db()).await?;

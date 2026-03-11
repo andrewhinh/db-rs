@@ -31,7 +31,7 @@ mprocs
 - [x] append AOF for mutating cmds
 - [x] replay AOF on startup
 - [x] snapshot and restore
-- [ ] AOF rewrite and tombstones
+- [x] AOF rewrite and tombstones
 - [ ] ordered change stream
 - [ ] snapshot and offset bootstrap
 - [ ] leader/follower async replication

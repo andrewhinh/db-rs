@@ -2,11 +2,12 @@ use std::io::{self, Cursor, ErrorKind, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use tokio::fs::{File, OpenOptions};
+use tokio::fs::{self, File, OpenOptions};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tracing::warn;
 
+use crate::cmd::Set;
 use crate::{Command, Db, Frame, frame};
 
 #[derive(Debug, Clone)]
@@ -52,6 +53,13 @@ pub(crate) struct ReplayStats {
     pub(crate) truncated_tail_bytes: usize,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct RewriteStats {
+    pub(crate) written_commands: usize,
+    pub(crate) old_bytes: u64,
+    pub(crate) new_bytes: u64,
+}
+
 pub(crate) async fn replay_from_path(
     path: impl AsRef<Path>,
     db: &Db,
@@ -65,6 +73,56 @@ pub(crate) async fn replay_from_path(
     };
 
     replay_bytes(&contents, db)
+}
+
+pub(crate) async fn rewrite_from_db(
+    path: impl AsRef<Path>,
+    db: &Db,
+) -> crate::Result<RewriteStats> {
+    let path = path.as_ref();
+    let old_bytes = match fs::metadata(path).await {
+        Ok(metadata) => metadata.len(),
+        Err(err) if err.kind() == ErrorKind::NotFound => 0,
+        Err(err) => return Err(err.into()),
+    };
+
+    let mut entries = db.snapshot_entries();
+    entries.sort_by(|left, right| left.key.cmp(&right.key));
+
+    let mut encoded = Vec::new();
+    let written_commands = entries.len();
+    for entry in entries {
+        let frame = Set::new(entry.key, entry.value, entry.expire_in).into_frame();
+        encode_frame(&frame, &mut encoded)?;
+    }
+    let new_bytes = encoded.len() as u64;
+
+    let temp_path = temp_rewrite_path(path);
+    fs::write(&temp_path, &encoded).await?;
+
+    if let Err(err) = fs::rename(&temp_path, path).await {
+        let _ = fs::remove_file(&temp_path).await;
+        return Err(err.into());
+    }
+
+    Ok(RewriteStats {
+        written_commands,
+        old_bytes,
+        new_bytes,
+    })
+}
+
+fn temp_rewrite_path(path: &Path) -> PathBuf {
+    let mut tmp = path.to_path_buf();
+    let suffix = format!("rewrite-{}", std::process::id());
+    if let Some(ext) = path.extension().and_then(|ext| ext.to_str())
+        && !ext.is_empty()
+    {
+        tmp.set_extension(format!("{ext}.{suffix}"));
+    } else {
+        tmp.set_extension(suffix);
+    }
+    tmp
 }
 
 fn replay_bytes(contents: &[u8], db: &Db) -> crate::Result<ReplayStats> {
