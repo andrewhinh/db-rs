@@ -2,7 +2,7 @@
 
 A Rust implementation of a Redis client and server.
 
-![icon](./assets/icon.png)
+![icon](./assets/icon.svg)
 
 ## Development
 
