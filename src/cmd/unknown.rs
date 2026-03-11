@@ -26,12 +26,10 @@ impl Unknown {
     ///
     /// This usually means the command is not yet implemented by `db-rs`.
     #[instrument(skip(self, dst))]
-    pub(crate) async fn apply(self, dst: &mut Connection) -> crate::Result<()> {
+    pub(crate) async fn apply(self, dst: &mut Connection) -> crate::Result<bool> {
         let response = Frame::Error(format!("ERR unknown command '{}'", self.command_name));
-
         debug!(?response);
-
         dst.write_frame(&response).await?;
-        Ok(())
+        Ok(false)
     }
 }

@@ -375,6 +375,32 @@ impl Db {
         }
     }
 
+    /// Compare-and-set: set key to value only if current value equals expected.
+    /// Returns true if set, false on mismatch.
+    pub(crate) fn cas(&self, key: &str, expected: Option<&[u8]>, value: Bytes) -> bool {
+        let mut state = self.shared.state.lock().unwrap();
+        let key = key.to_string();
+        let current = state.entries.get(&key).map(|e| e.data.as_ref());
+        if current != expected {
+            return false;
+        }
+        let prev = state.entries.insert(
+            key.clone(),
+            Entry {
+                data: value.clone(),
+                expires_at: None,
+            },
+        );
+        if let Some(prev) = prev
+            && let Some(when) = prev.expires_at
+        {
+            state.expirations.remove(&(when, key.clone()));
+        }
+        drop(state);
+        self.shared.emit_change("set", &key, Some(value));
+        true
+    }
+
     /// Apply a change from replication without emitting to the change stream.
     pub(crate) fn apply_change_quiet(
         &self,

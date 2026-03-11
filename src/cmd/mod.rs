@@ -1,8 +1,11 @@
-mod get;
-pub use get::Get;
+mod cas;
+pub use cas::Cas;
 
 mod del;
 pub use del::Del;
+
+mod get;
+pub use get::Get;
 
 mod exists;
 pub use exists::Exists;
@@ -38,6 +41,7 @@ use crate::{Connection, Db, Frame, Parse, ParseError, Shutdown};
 /// Methods called on `Command` are delegated to the command implementation.
 #[derive(Debug)]
 pub enum Command {
+    Cas(Cas),
     Del(Del),
     Exists(Exists),
     Expire(Expire),
@@ -78,6 +82,7 @@ impl Command {
         // Match the command name, delegating the rest of the parsing to the
         // specific command.
         let command = match &command_name[..] {
+            "cas" => Command::Cas(Cas::parse_frames(&mut parse)?),
             "del" => Command::Del(Del::parse_frames(&mut parse)?),
             "exists" => Command::Exists(Exists::parse_frames(&mut parse)?),
             "expire" => Command::Expire(Expire::parse_frames(&mut parse)?),
@@ -111,18 +116,19 @@ impl Command {
     }
 
     /// Apply the command to the specified `Db` instance.
-    ///
     /// The response is written to `dst`. This is called by the server in order
     /// to execute a received command.
+    /// Returns `Ok(true)` if the command mutated state (for AOF append).
     pub(crate) async fn apply(
         self,
         db: &Db,
         dst: &mut Connection,
         shutdown: &mut Shutdown,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<bool> {
         use Command::*;
 
         match self {
+            Cas(cmd) => cmd.apply(db, dst).await,
             Del(cmd) => cmd.apply(db, dst).await,
             Exists(cmd) => cmd.apply(db, dst).await,
             Expire(cmd) => cmd.apply(db, dst).await,
@@ -144,6 +150,7 @@ impl Command {
     /// Returns the command name
     pub(crate) fn get_name(&self) -> &str {
         match self {
+            Command::Cas(_) => "cas",
             Command::Del(_) => "del",
             Command::Exists(_) => "exists",
             Command::Expire(_) => "expire",
@@ -161,11 +168,15 @@ impl Command {
     }
 
     pub(crate) fn should_append_to_aof(&self) -> bool {
-        matches!(self, Command::Set(_) | Command::Del(_) | Command::Expire(_))
+        matches!(
+            self,
+            Command::Cas(_) | Command::Set(_) | Command::Del(_) | Command::Expire(_)
+        )
     }
 
     pub(crate) fn apply_for_replay(self, db: &Db) -> crate::Result<()> {
         match self {
+            Command::Cas(cmd) => cmd.apply_for_replay(db),
             Command::Set(cmd) => cmd.apply_for_replay(db),
             Command::Del(cmd) => cmd.apply_for_replay(db),
             Command::Expire(cmd) => cmd.apply_for_replay(db),

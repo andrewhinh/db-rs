@@ -58,6 +58,17 @@ enum Command {
         /// Name of key
         key: String,
     },
+    /// Compare-and-set: set key to value only if current equals expected.
+    Cas {
+        /// Name of key
+        key: String,
+
+        /// Expected value; use "null" to expect key missing
+        expected: String,
+
+        /// Value to set on success
+        value: Bytes,
+    },
     /// Set key to hold the string value.
     Set {
         /// Name of key to set
@@ -154,6 +165,19 @@ async fn main() -> db_rs::Result<()> {
         Command::Pttl { key } => {
             let pttl = client.pttl(&key).await?;
             println!("{pttl}");
+        }
+        Command::Cas {
+            key,
+            expected,
+            value,
+        } => {
+            let exp = if expected.eq_ignore_ascii_case("null") {
+                None
+            } else {
+                Some(Bytes::from(expected.into_bytes()))
+            };
+            let ok = client.cas(&key, exp, value).await?;
+            println!("{}", if ok { 1 } else { 0 });
         }
         Command::Set {
             key,

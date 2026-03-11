@@ -12,7 +12,7 @@ use tokio_stream::Stream;
 use tracing::{debug, instrument};
 
 use crate::cmd::{
-    Del, Exists, Expire, Get, Offset, Ping, Pttl, Publish, Set, Subscribe, Ttl, Unsubscribe,
+    Cas, Del, Exists, Expire, Get, Offset, Ping, Pttl, Publish, Set, Subscribe, Ttl, Unsubscribe,
 };
 use crate::{Connection, Frame};
 
@@ -351,6 +351,26 @@ impl Client {
         // used to set a value with an expiration. The common parts of both
         // functions are implemented by `set_cmd`.
         self.set_cmd(Set::new(key, value, Some(expiration))).await
+    }
+
+    /// CAS: set key to value only if current equals expected. Returns true on
+    /// success.
+    #[instrument(skip(self))]
+    pub async fn cas(
+        &mut self,
+        key: &str,
+        expected: Option<Bytes>,
+        value: Bytes,
+    ) -> crate::Result<bool> {
+        let frame = Cas::new(key, expected, value).into_frame();
+        debug!(request = ?frame);
+        self.connection.write_frame(&frame).await?;
+
+        match self.read_response().await? {
+            Frame::Integer(1) => Ok(true),
+            Frame::Integer(0) => Ok(false),
+            frame => Err(frame.to_error()),
+        }
     }
 
     /// The core `SET` logic, used by both `set` and `set_expires.

@@ -107,7 +107,7 @@ impl Subscribe {
         db: &Db,
         dst: &mut Connection,
         shutdown: &mut Shutdown,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<bool> {
         // Each individual channel subscription is handled using a
         // `sync::broadcast` channel. Messages are then fanned out to all
         // clients currently subscribed to the channels.
@@ -141,7 +141,7 @@ impl Subscribe {
                     let frame = match res? {
                         Some(frame) => frame,
                         // This happens if the remote client has disconnected.
-                        None => return Ok(())
+                        None => return Ok(false)
                     };
 
                     handle_command(
@@ -152,7 +152,7 @@ impl Subscribe {
                     ).await?;
                 }
                 _ = shutdown.recv() => {
-                    return Ok(());
+                    return Ok(false);
                 }
             };
         }
@@ -281,7 +281,7 @@ async fn handle_command(
         }
         command => {
             let cmd = Unknown::new(command.get_name());
-            cmd.apply(dst).await?;
+            let _ = cmd.apply(dst).await?;
         }
     }
     Ok(())

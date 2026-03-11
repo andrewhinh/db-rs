@@ -28,10 +28,10 @@ impl Ttl {
     }
 
     /// Apply the `Ttl` command to the specified `Db` instance.
-    pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<()> {
+    pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<bool> {
         let response = Frame::Integer(db.ttl(&self.key));
         dst.write_frame(&response).await?;
-        Ok(())
+        Ok(false)
     }
 
     /// Converts the command into an equivalent `Frame`.
@@ -56,10 +56,10 @@ impl Pttl {
     }
 
     /// Apply the `Pttl` command to the specified `Db` instance.
-    pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<()> {
+    pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<bool> {
         let response = Frame::Integer(db.pttl(&self.key));
         dst.write_frame(&response).await?;
-        Ok(())
+        Ok(false)
     }
 
     /// Converts the command into an equivalent `Frame`.

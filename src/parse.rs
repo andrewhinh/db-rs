@@ -94,6 +94,22 @@ impl Parse {
         }
     }
 
+    /// Return the next entry as raw bytes or null.
+    ///
+    /// Returns `Ok(None)` for `Frame::Null`, `Ok(Some(bytes))` for Simple/Bulk.
+    pub(crate) fn next_bytes_or_null(&mut self) -> Result<Option<Bytes>, ParseError> {
+        match self.next()? {
+            Frame::Null => Ok(None),
+            Frame::Simple(s) => Ok(Some(Bytes::from(s.into_bytes()))),
+            Frame::Bulk(data) => Ok(Some(data)),
+            frame => Err(format!(
+                "protocol error; expected bulk, simple, or null, got {:?}",
+                frame
+            )
+            .into()),
+        }
+    }
+
     /// Return the next entry as an integer.
     ///
     /// This includes `Simple`, `Bulk`, and `Integer` frame types. `Simple` and

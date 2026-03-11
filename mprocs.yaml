@@ -14,6 +14,16 @@ procs:
     shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example hello_world
     autostart: true
 
+  sub:
+    cwd: .
+    shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example sub
+    autostart: true
+
+  pub:
+    cwd: .
+    shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example pub
+    autostart: true
+
   del:
     cwd: .
     shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example del
@@ -27,16 +37,6 @@ procs:
   ttl:
     cwd: .
     shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example ttl
-    autostart: true
-
-  sub:
-    cwd: .
-    shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example sub
-    autostart: true
-
-  pub:
-    cwd: .
-    shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example pub
     autostart: true
 
   aof-append:
@@ -95,3 +95,8 @@ procs:
       sleep 2
       cargo run --example session_consistency
     autostart: false
+
+  cas:
+    cwd: .
+    shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example cas
+    autostart: true
