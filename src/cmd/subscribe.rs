@@ -8,6 +8,8 @@ use tokio_stream::{Stream, StreamExt, StreamMap};
 use crate::cmd::{Parse, ParseError, Unknown};
 use crate::{Command, Connection, Db, Frame, Shutdown};
 
+pub(crate) const CHANGES_CHANNEL: &str = "__changes__";
+
 /// Subscribes the client to one or more channels.
 ///
 /// Once the client enters the subscribed state, it is not supposed to issue any
@@ -174,7 +176,11 @@ async fn subscribe_to_channel(
     db: &Db,
     dst: &mut Connection,
 ) -> crate::Result<()> {
-    let mut rx = db.subscribe(channel_name.clone());
+    let mut rx = if channel_name == CHANGES_CHANNEL {
+        db.subscribe_changes()
+    } else {
+        db.subscribe(channel_name.clone())
+    };
 
     // Subscribe to the channel.
     let rx = Box::pin(async_stream::stream! {
