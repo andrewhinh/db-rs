@@ -63,3 +63,8 @@ procs:
     cwd: .
     shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example change_stream
     autostart: true
+
+  change_stream_bootstrap:
+    cwd: .
+    shell: until cargo run --bin db-rs-cli ping >/dev/null 2>&1; do sleep 0.2; done; cargo run --example change_stream_bootstrap
+    autostart: true
