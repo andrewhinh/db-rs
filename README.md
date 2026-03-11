@@ -38,4 +38,4 @@ mprocs
 - [x] resume from persisted offset
 - [x] read-your-writes and monotonic reads
 - [x] WATCH/CAS-style optimistic writes
-- [ ] event-time windows and late corrections
+- [x] event-time windows and late corrections

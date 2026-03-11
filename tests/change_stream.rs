@@ -5,7 +5,7 @@ use std::io::Cursor;
 use db_rs::{Frame, clients::Client};
 use tokio::time::{self, Duration};
 
-fn parse_change_event(bytes: &[u8]) -> (i64, String, String, Option<Vec<u8>>) {
+fn parse_change_event(bytes: &[u8]) -> (i64, String, String, Option<Vec<u8>>, i64) {
     let mut cur = Cursor::new(bytes);
     let frame = Frame::parse(&mut cur).unwrap();
     let Frame::Array(arr) = frame else {
@@ -28,7 +28,14 @@ fn parse_change_event(bytes: &[u8]) -> (i64, String, String, Option<Vec<u8>>) {
         Frame::Bulk(b) => Some(b.to_vec()),
         _ => panic!("expected null or bulk value"),
     };
-    (offset, op, key, value)
+    let ts_ms = arr
+        .get(4)
+        .and_then(|f| match f {
+            Frame::Integer(n) => Some(*n),
+            _ => None,
+        })
+        .unwrap_or(0);
+    (offset, op, key, value, ts_ms)
 }
 
 #[tokio::test]
@@ -47,14 +54,14 @@ async fn cdc_emits_set_del_expire() {
     client.set("k1", "v1".into()).await.unwrap();
     let msg = subscriber.next_message().await.unwrap().unwrap();
     assert_eq!(msg.channel, "__changes__");
-    let (_offset, op, key, value) = parse_change_event(&msg.content);
+    let (_offset, op, key, value, _ts) = parse_change_event(&msg.content);
     assert_eq!(op, "set");
     assert_eq!(key, "k1");
     assert_eq!(value.as_deref(), Some(b"v1" as &[u8]));
 
     client.del(&["k1".into()]).await.unwrap();
     let msg = subscriber.next_message().await.unwrap().unwrap();
-    let (_, op, key, value) = parse_change_event(&msg.content);
+    let (_, op, key, value, _) = parse_change_event(&msg.content);
     assert_eq!(op, "del");
     assert_eq!(key, "k1");
     assert!(value.is_none());
@@ -64,7 +71,7 @@ async fn cdc_emits_set_del_expire() {
 
     client.expire("k2", 10).await.unwrap();
     let msg = subscriber.next_message().await.unwrap().unwrap();
-    let (_, op, key, _) = parse_change_event(&msg.content);
+    let (_, op, key, _, _) = parse_change_event(&msg.content);
     assert_eq!(op, "expire");
     assert_eq!(key, "k2");
 }
@@ -90,11 +97,15 @@ async fn cdc_offsets_monotonic() {
     }
 
     let mut prev_offset = -1i64;
+    let mut prev_ts = -1i64;
     for _ in 0..5 {
         let msg = subscriber.next_message().await.unwrap().unwrap();
-        let (offset, _, _, _) = parse_change_event(&msg.content);
+        let (offset, _, _, _, ts_ms) = parse_change_event(&msg.content);
         assert!(offset > prev_offset);
+        assert!(ts_ms >= 0);
+        assert!(ts_ms >= prev_ts);
         prev_offset = offset;
+        prev_ts = ts_ms;
     }
 }
 
@@ -120,7 +131,7 @@ async fn cdc_expired_key_emits_del() {
     time::sleep(Duration::from_millis(150)).await;
 
     let msg = subscriber.next_message().await.unwrap().unwrap();
-    let (_, op, key, value) = parse_change_event(&msg.content);
+    let (_, op, key, value, _) = parse_change_event(&msg.content);
     assert_eq!(op, "del");
     assert_eq!(key, "exp_k");
     assert!(value.is_none());
@@ -145,7 +156,7 @@ async fn consumer_bootstrap_gets_full_state_then_tail() {
     for _ in 0..2 {
         let msg = subscriber.next_message().await.unwrap().unwrap();
         assert_eq!(msg.channel, "__changes__@boot");
-        let (offset, op, key, value) = parse_change_event(&msg.content);
+        let (offset, op, key, value, _) = parse_change_event(&msg.content);
         assert_eq!(op, "set");
         snapshot.push((offset, key, value));
     }
@@ -162,7 +173,7 @@ async fn consumer_bootstrap_gets_full_state_then_tail() {
 
     client.set("k3", "v3".into()).await.unwrap();
     let msg = subscriber.next_message().await.unwrap().unwrap();
-    let (_, op, key, value) = parse_change_event(&msg.content);
+    let (_, op, key, value, _) = parse_change_event(&msg.content);
     assert_eq!(op, "set");
     assert_eq!(key, "k3");
     assert_eq!(value.as_deref(), Some(b"v3" as &[u8]));
@@ -201,7 +212,7 @@ async fn consumer_reconnect_resumes_from_offset() {
     let mut snapshot = Vec::new();
     for _ in 0..3 {
         let msg = sub2.next_message().await.unwrap().unwrap();
-        let (off, _, key, _) = parse_change_event(&msg.content);
+        let (off, _, key, _, _) = parse_change_event(&msg.content);
         snapshot.push((off, key));
     }
     snapshot.sort_by(|a, b| a.1.cmp(&b.1));

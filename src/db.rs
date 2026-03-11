@@ -1,6 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::UNIX_EPOCH;
 
 use bytes::Bytes;
 use tokio::sync::{Notify, broadcast};
@@ -583,12 +584,17 @@ impl Db {
 impl Shared {
     fn emit_change(&self, op: &str, key: &str, value: Option<Bytes>) {
         let offset = self.next_offset.fetch_add(1, Ordering::SeqCst) as i64;
+        let ts_ms = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
         let value_frame = value.map_or(Frame::Null, Frame::Bulk);
         let frame = Frame::Array(vec![
             Frame::Integer(offset),
             Frame::Simple(op.to_string()),
             Frame::Bulk(Bytes::from(key.to_string())),
             value_frame,
+            Frame::Integer(ts_ms),
         ]);
         let mut encoded = Vec::new();
         if aof::encode_frame(&frame, &mut encoded).is_ok() {

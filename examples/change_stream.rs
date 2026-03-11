@@ -18,7 +18,7 @@ use std::io::Cursor;
 use db_rs::{Frame, Result, clients::Client};
 use tokio::time::Duration;
 
-fn parse_change(content: &[u8]) -> Option<(i64, String, String)> {
+fn parse_change(content: &[u8]) -> Option<(i64, String, String, i64)> {
     let mut cur = Cursor::new(content);
     let frame = Frame::parse(&mut cur).ok()?;
     let Frame::Array(arr) = frame else {
@@ -36,7 +36,14 @@ fn parse_change(content: &[u8]) -> Option<(i64, String, String)> {
         Frame::Bulk(b) => String::from_utf8_lossy(b).into_owned(),
         _ => return None,
     };
-    Some((offset, op, key))
+    let ts_ms = arr
+        .get(4)
+        .and_then(|f| match f {
+            Frame::Integer(n) => Some(*n),
+            _ => None,
+        })
+        .unwrap_or(0);
+    Some((offset, op, key, ts_ms))
 }
 
 #[tokio::main]
@@ -58,8 +65,8 @@ async fn main() -> Result<()> {
 
     for _ in 0..3 {
         if let Some(msg) = subscriber.next_message().await? {
-            if let Some((offset, op, key)) = parse_change(&msg.content) {
-                println!("{} {} {}", offset, op, key);
+            if let Some((offset, op, key, ts_ms)) = parse_change(&msg.content) {
+                println!("{} {} {} {}", offset, op, key, ts_ms);
             }
         }
     }
