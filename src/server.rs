@@ -13,6 +13,7 @@ use tokio::time::{self, Duration};
 use tracing::{debug, error, info, instrument};
 
 use crate::aof::{AofAppender, replay_from_path};
+use crate::snapshot::write_to_path;
 use crate::{Command, Connection, Db, DbDropGuard, Shutdown};
 
 /// Server listener state. Created in the `run` call. It includes a `run` method
@@ -123,6 +124,7 @@ const MAX_CONNECTIONS: usize = 250;
 #[derive(Debug, Clone, Default)]
 pub struct ServerConfig {
     pub aof_path: Option<PathBuf>,
+    pub snapshot_path: Option<PathBuf>,
 }
 
 /// Run the db-rs server.
@@ -146,7 +148,20 @@ pub async fn run_with_config(
     config: ServerConfig,
 ) -> crate::Result<()> {
     let db_holder = DbDropGuard::new();
-    let aof_path = config.aof_path;
+    let ServerConfig {
+        aof_path,
+        snapshot_path,
+    } = config;
+
+    if let Some(path) = snapshot_path.as_ref() {
+        let replay_stats = replay_from_path(path, &db_holder.db()).await?;
+        info!(
+            path = ?path,
+            applied_commands = replay_stats.applied_commands,
+            truncated_tail_bytes = replay_stats.truncated_tail_bytes,
+            "snapshot restore finished"
+        );
+    }
 
     if let Some(path) = aof_path.as_ref() {
         let replay_stats = replay_from_path(path, &db_holder.db()).await?;
@@ -225,6 +240,7 @@ pub async fn run_with_config(
     let Listener {
         shutdown_complete_tx,
         notify_shutdown,
+        db_holder,
         ..
     } = server;
 
@@ -239,6 +255,15 @@ pub async fn run_with_config(
     // `Sender` instances are held by connection handler tasks. When those drop,
     // the `mpsc` channel will close and `recv()` will return `None`.
     let _ = shutdown_complete_rx.recv().await;
+
+    if let Some(path) = snapshot_path.as_ref() {
+        let snapshot_stats = write_to_path(path, &db_holder.db()).await?;
+        info!(
+            path = ?path,
+            written_commands = snapshot_stats.written_commands,
+            "snapshot write finished"
+        );
+    }
 
     Ok(())
 }

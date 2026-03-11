@@ -21,6 +21,7 @@ pub async fn main() -> db_rs::Result<()> {
     let port = cli.port.unwrap_or(DEFAULT_PORT);
     let config = server::ServerConfig {
         aof_path: cli.aof_path,
+        snapshot_path: cli.snapshot_path,
     };
 
     // Bind a TCP listener
@@ -39,6 +40,9 @@ struct Cli {
 
     #[arg(long)]
     aof_path: Option<PathBuf>,
+
+    #[arg(long)]
+    snapshot_path: Option<PathBuf>,
 }
 
 fn set_up_logging() -> db_rs::Result<()> {

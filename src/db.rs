@@ -96,6 +96,13 @@ struct Entry {
     expires_at: Option<Instant>,
 }
 
+#[derive(Debug)]
+pub(crate) struct SnapshotEntry {
+    pub(crate) key: String,
+    pub(crate) value: Bytes,
+    pub(crate) expire_in: Option<Duration>,
+}
+
 impl DbDropGuard {
     /// Create a new `DbDropGuard`, wrapping a `Db` instance. When this is
     /// dropped the `Db`'s purge task will be shut down.
@@ -328,6 +335,37 @@ impl Db {
             // its state to reflect a new expiration.
             self.shared.background_task.notify_one();
         }
+    }
+
+    pub(crate) fn snapshot_entries(&self) -> Vec<SnapshotEntry> {
+        let mut state = self.shared.state.lock().unwrap();
+        let now = Instant::now();
+
+        let mut entries = Vec::with_capacity(state.entries.len());
+        let mut expired = Vec::new();
+
+        for (key, entry) in &state.entries {
+            match entry.expires_at {
+                Some(when) if when <= now => expired.push((key.clone(), when)),
+                Some(when) => entries.push(SnapshotEntry {
+                    key: key.clone(),
+                    value: entry.data.clone(),
+                    expire_in: Some(when.duration_since(now)),
+                }),
+                None => entries.push(SnapshotEntry {
+                    key: key.clone(),
+                    value: entry.data.clone(),
+                    expire_in: None,
+                }),
+            }
+        }
+
+        for (key, when) in expired {
+            state.entries.remove(&key);
+            state.expirations.remove(&(when, key));
+        }
+
+        entries
     }
 
     /// Returns a `Receiver` for the requested channel.
