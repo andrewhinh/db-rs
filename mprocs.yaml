@@ -1,0 +1,25 @@
+procs:
+  server:
+    cwd: .
+    shell: cargo run --bin db-rs-server
+    autostart: true
+
+  cli:
+    cwd: .
+    shell: cargo run --bin db-rs-cli set foo bar && cargo run --bin db-rs-cli get foo
+    autostart: true
+
+  hello-world:
+    cwd: .
+    shell: cargo run --example hello_world
+    autostart: true
+
+  pub:
+    cwd: .
+    shell: cargo run --example pub
+    autostart: true
+
+  sub:
+    cwd: .
+    shell: cargo run --example sub
+    autostart: true
