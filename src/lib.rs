@@ -37,6 +37,8 @@ pub use connection::Connection;
 pub mod frame;
 pub use frame::Frame;
 
+mod aof;
+
 mod db;
 use db::Db;
 use db::DbDropGuard;
