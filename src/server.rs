@@ -131,6 +131,7 @@ pub struct ServerConfig {
     pub aof_path: Option<PathBuf>,
     pub snapshot_path: Option<PathBuf>,
     pub replicaof: Option<(String, u16)>,
+    pub repl_offset_path: Option<PathBuf>,
 }
 
 /// Run the db-rs server.
@@ -158,6 +159,7 @@ pub async fn run_with_config(
         aof_path,
         snapshot_path,
         replicaof,
+        repl_offset_path,
     } = config;
     let aof_rewrite_path = aof_path.clone();
     let is_follower = replicaof.is_some();
@@ -209,6 +211,7 @@ pub async fn run_with_config(
             addr,
             db_holder.db(),
             notify_shutdown.subscribe(),
+            repl_offset_path,
         ));
     }
 

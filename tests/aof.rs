@@ -240,6 +240,7 @@ async fn aof_replay_rejects_unknown_command() {
         aof_path: Some(aof_path.clone()),
         snapshot_path: None,
         replicaof: None,
+        repl_offset_path: None,
     };
 
     let err = server::run_with_config(listener, async {}, config)
@@ -359,6 +360,7 @@ async fn start_server_with_aof(aof_path: PathBuf) -> TestServer {
         aof_path: Some(aof_path),
         snapshot_path: None,
         replicaof: None,
+        repl_offset_path: None,
     };
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
