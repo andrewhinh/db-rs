@@ -11,6 +11,15 @@ use crate::clients::Client;
 enum Command {
     Get(String),
     Set(String, Bytes),
+    Del(Vec<String>),
+    Exists(Vec<String>),
+}
+
+#[derive(Debug)]
+enum Response {
+    Value(Option<Bytes>),
+    Unit,
+    Count(u64),
 }
 
 // Message type sent over the channel to the connection task.
@@ -20,7 +29,7 @@ enum Command {
 // `oneshot::Sender` is a channel type that sends a **single** value. It is used
 // here to send the response received from the connection back to the original
 // requester.
-type Message = (Command, oneshot::Sender<Result<Option<Bytes>>>);
+type Message = (Command, oneshot::Sender<Result<Response>>);
 
 /// Receive commands sent through the channel and forward them to client. The
 /// response is returned back to the caller via a `oneshot`.
@@ -31,8 +40,10 @@ async fn run(mut client: Client, mut rx: Receiver<Message>) {
     while let Some((cmd, tx)) = rx.recv().await {
         // The command is forwarded to the connection
         let response = match cmd {
-            Command::Get(key) => client.get(&key).await,
-            Command::Set(key, value) => client.set(&key, value).await.map(|_| None),
+            Command::Get(key) => client.get(&key).await.map(Response::Value),
+            Command::Set(key, value) => client.set(&key, value).await.map(|_| Response::Unit),
+            Command::Del(keys) => client.del(&keys).await.map(Response::Count),
+            Command::Exists(keys) => client.exists(&keys).await.map(Response::Count),
         };
 
         // Send the response back to the caller.
@@ -94,7 +105,10 @@ impl BufferedClient {
 
         // Await the response
         match rx.await {
-            Ok(res) => res,
+            Ok(res) => match res? {
+                Response::Value(value) => Ok(value),
+                _ => Err("unexpected response for GET".into()),
+            },
             Err(err) => Err(err.into()),
         }
     }
@@ -116,7 +130,48 @@ impl BufferedClient {
 
         // Await the response
         match rx.await {
-            Ok(res) => res.map(|_| ()),
+            Ok(res) => match res? {
+                Response::Unit => Ok(()),
+                _ => Err("unexpected response for SET".into()),
+            },
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    /// Delete one or more keys.
+    ///
+    /// Requests are buffered until the associated
+    /// connection has the ability to send the request.
+    pub async fn del(&mut self, keys: &[String]) -> Result<u64> {
+        let del = Command::Del(keys.to_vec());
+        let (tx, rx) = oneshot::channel();
+
+        self.tx.send((del, tx)).await?;
+
+        match rx.await {
+            Ok(res) => match res? {
+                Response::Count(count) => Ok(count),
+                _ => Err("unexpected response for DEL".into()),
+            },
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    /// Return the number of keys that exist.
+    ///
+    /// Requests are buffered until the
+    /// associated connection has the ability to send the request.
+    pub async fn exists(&mut self, keys: &[String]) -> Result<u64> {
+        let exists = Command::Exists(keys.to_vec());
+        let (tx, rx) = oneshot::channel();
+
+        self.tx.send((exists, tx)).await?;
+
+        match rx.await {
+            Ok(res) => match res? {
+                Response::Count(count) => Ok(count),
+                _ => Err("unexpected response for EXISTS".into()),
+            },
             Err(err) => Err(err.into()),
         }
     }

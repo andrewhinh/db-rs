@@ -56,6 +56,45 @@ async fn key_value_get_set() {
     assert_eq!(0, stream.read(&mut response).await.unwrap());
 }
 
+#[tokio::test]
+async fn key_value_exists_del() {
+    let addr = start_server().await;
+
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    stream
+        .write_all(b"*3\r\n$3\r\nSET\r\n$5\r\nhello\r\n$5\r\nworld\r\n")
+        .await
+        .unwrap();
+    let mut response = [0; 5];
+    stream.read_exact(&mut response).await.unwrap();
+    assert_eq!(b"+OK\r\n", &response);
+
+    stream
+        .write_all(b"*3\r\n$6\r\nEXISTS\r\n$5\r\nhello\r\n$7\r\nmissing\r\n")
+        .await
+        .unwrap();
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).await.unwrap();
+    assert_eq!(b":1\r\n", &response);
+
+    stream
+        .write_all(b"*4\r\n$3\r\nDEL\r\n$5\r\nhello\r\n$7\r\nmissing\r\n$5\r\nhello\r\n")
+        .await
+        .unwrap();
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).await.unwrap();
+    assert_eq!(b":1\r\n", &response);
+
+    stream
+        .write_all(b"*2\r\n$6\r\nEXISTS\r\n$5\r\nhello\r\n")
+        .await
+        .unwrap();
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).await.unwrap();
+    assert_eq!(b":0\r\n", &response);
+}
+
 /// Similar to the basic key-value test, but validates key expiration.
 ///
 /// This test uses a short PX timeout and bounded reads so failures surface
@@ -114,6 +153,42 @@ async fn key_value_timeout() {
         .unwrap();
 
     assert_eq!(b"$-1\r\n", &response);
+}
+
+#[tokio::test]
+async fn key_value_del_ttl() {
+    let addr = start_server().await;
+
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    stream
+        .write_all(
+            b"*5\r\n$3\r\nSET\r\n$5\r\nttl_k\r\n$5\r\nvalue\r\n\
+                     +PX\r\n:200\r\n",
+        )
+        .await
+        .unwrap();
+    let mut response = [0; 5];
+    stream.read_exact(&mut response).await.unwrap();
+    assert_eq!(b"+OK\r\n", &response);
+
+    stream
+        .write_all(b"*2\r\n$3\r\nDEL\r\n$5\r\nttl_k\r\n")
+        .await
+        .unwrap();
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).await.unwrap();
+    assert_eq!(b":1\r\n", &response);
+
+    time::sleep(Duration::from_millis(300)).await;
+
+    stream
+        .write_all(b"*2\r\n$6\r\nEXISTS\r\n$5\r\nttl_k\r\n")
+        .await
+        .unwrap();
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).await.unwrap();
+    assert_eq!(b":0\r\n", &response);
 }
 
 #[tokio::test]
@@ -392,6 +467,26 @@ async fn send_error_get_set_after_subscribe() {
 
     stream.read_exact(&mut response).await.unwrap();
     assert_eq!(b"-ERR unknown command \'get\'\r\n", &response);
+
+    stream
+        .write_all(b"*2\r\n$3\r\nDEL\r\n$5\r\nhello\r\n")
+        .await
+        .unwrap();
+
+    let expected = b"-ERR unknown command \'del\'\r\n";
+    let mut response = vec![0; expected.len()];
+    stream.read_exact(&mut response).await.unwrap();
+    assert_eq!(expected, response.as_slice());
+
+    stream
+        .write_all(b"*2\r\n$6\r\nEXISTS\r\n$5\r\nhello\r\n")
+        .await
+        .unwrap();
+
+    let expected = b"-ERR unknown command \'exists\'\r\n";
+    let mut response = vec![0; expected.len()];
+    stream.read_exact(&mut response).await.unwrap();
+    assert_eq!(expected, response.as_slice());
 }
 
 async fn start_server() -> SocketAddr {

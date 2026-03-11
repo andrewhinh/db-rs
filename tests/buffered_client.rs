@@ -24,6 +24,29 @@ async fn pool_key_value_get_set() {
     assert_eq!(b"world", &value[..])
 }
 
+#[tokio::test]
+async fn pool_key_value_exists_del() {
+    let (addr, _) = start_server().await;
+
+    let client = Client::connect(addr).await.unwrap();
+    let mut client = BufferedClient::buffer(client);
+
+    client.set("hello", "world".into()).await.unwrap();
+    client.set("foo", "bar".into()).await.unwrap();
+
+    let exists = client
+        .exists(&["hello".into(), "foo".into(), "missing".into()])
+        .await
+        .unwrap();
+    assert_eq!(2, exists);
+
+    let removed = client
+        .del(&["hello".into(), "missing".into()])
+        .await
+        .unwrap();
+    assert_eq!(1, removed);
+}
+
 async fn start_server() -> (SocketAddr, JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

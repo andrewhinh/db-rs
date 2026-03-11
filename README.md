@@ -26,7 +26,7 @@ mprocs
 ## Roadmap
 
 - [x] port mini-redis
-- [ ] add DEL and EXISTS
+- [x] add DEL and EXISTS
 - [ ] add EXPIRE and TTL/PTTL
 - [ ] append AOF for mutating cmds
 - [ ] replay AOF on startup

@@ -11,7 +11,7 @@ use tokio::net::{TcpStream, ToSocketAddrs};
 use tokio_stream::Stream;
 use tracing::{debug, instrument};
 
-use crate::cmd::{Get, Ping, Publish, Set, Subscribe, Unsubscribe};
+use crate::cmd::{Del, Exists, Get, Ping, Publish, Set, Subscribe, Unsubscribe};
 use crate::{Connection, Frame};
 
 /// Established connection with a Redis server.
@@ -161,6 +161,34 @@ impl Client {
             Frame::Simple(value) => Ok(Some(value.into())),
             Frame::Bulk(value) => Ok(Some(value)),
             Frame::Null => Ok(None),
+            frame => Err(frame.to_error()),
+        }
+    }
+
+    /// Delete one or more keys.
+    ///
+    /// Returns the number of keys that were removed.
+    #[instrument(skip(self))]
+    pub async fn del(&mut self, keys: &[String]) -> crate::Result<u64> {
+        let frame = Del::new(keys).into_frame();
+        debug!(request = ?frame);
+        self.connection.write_frame(&frame).await?;
+
+        match self.read_response().await? {
+            Frame::Integer(value) => Ok(value),
+            frame => Err(frame.to_error()),
+        }
+    }
+
+    /// Return the number of keys that exist.
+    #[instrument(skip(self))]
+    pub async fn exists(&mut self, keys: &[String]) -> crate::Result<u64> {
+        let frame = Exists::new(keys).into_frame();
+        debug!(request = ?frame);
+        self.connection.write_frame(&frame).await?;
+
+        match self.read_response().await? {
+            Frame::Integer(value) => Ok(value),
             frame => Err(frame.to_error()),
         }
     }

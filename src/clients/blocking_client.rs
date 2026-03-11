@@ -104,6 +104,18 @@ impl BlockingClient {
         self.rt.block_on(self.inner.get(key))
     }
 
+    /// Delete one or more keys.
+    ///
+    /// Returns the number of keys that were removed.
+    pub fn del(&mut self, keys: &[String]) -> crate::Result<u64> {
+        self.rt.block_on(self.inner.del(keys))
+    }
+
+    /// Return the number of keys that exist.
+    pub fn exists(&mut self, keys: &[String]) -> crate::Result<u64> {
+        self.rt.block_on(self.inner.exists(keys))
+    }
+
     /// Set `key` to hold the given `value`.
     ///
     /// The `value` is associated with `key` until it is overwritten by the next

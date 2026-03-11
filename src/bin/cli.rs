@@ -30,6 +30,16 @@ enum Command {
         /// Name of key to get
         key: String,
     },
+    /// Delete one or more keys.
+    Del {
+        /// Keys to delete
+        keys: Vec<String>,
+    },
+    /// Return the number of keys that exist.
+    Exists {
+        /// Keys to check
+        keys: Vec<String>,
+    },
     /// Set key to hold the string value.
     Set {
         /// Name of key to set
@@ -100,6 +110,20 @@ async fn main() -> db_rs::Result<()> {
             } else {
                 println!("(nil)");
             }
+        }
+        Command::Del { keys } => {
+            if keys.is_empty() {
+                return Err("key(s) must be provided".into());
+            }
+            let removed = client.del(&keys).await?;
+            println!("{removed}");
+        }
+        Command::Exists { keys } => {
+            if keys.is_empty() {
+                return Err("key(s) must be provided".into());
+            }
+            let count = client.exists(&keys).await?;
+            println!("{count}");
         }
         Command::Set {
             key,
