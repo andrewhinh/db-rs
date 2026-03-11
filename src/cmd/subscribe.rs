@@ -5,10 +5,12 @@ use tokio::select;
 use tokio::sync::broadcast;
 use tokio_stream::{Stream, StreamExt, StreamMap};
 
+use crate::aof;
 use crate::cmd::{Parse, ParseError, Unknown};
 use crate::{Command, Connection, Db, Frame, Shutdown};
 
 pub(crate) const CHANGES_CHANNEL: &str = "__changes__";
+pub(crate) const CHANGES_BOOTSTRAP_CHANNEL: &str = "__changes__@boot";
 
 /// Subscribes the client to one or more channels.
 ///
@@ -176,23 +178,56 @@ async fn subscribe_to_channel(
     db: &Db,
     dst: &mut Connection,
 ) -> crate::Result<()> {
-    let mut rx = if channel_name == CHANGES_CHANNEL {
-        db.subscribe_changes()
-    } else {
-        db.subscribe(channel_name.clone())
-    };
-
-    // Subscribe to the channel.
-    let rx = Box::pin(async_stream::stream! {
-        loop {
-            match rx.recv().await {
-                Ok(msg) => yield msg,
-                // If we lagged in consuming messages, just resume.
-                Err(broadcast::error::RecvError::Lagged(_)) => {}
-                Err(_) => break,
-            }
+    let rx: Messages = if channel_name == CHANGES_BOOTSTRAP_CHANNEL {
+        let offset = db.current_offset();
+        let entries = db.snapshot_entries();
+        let mut snapshot_bytes = Vec::with_capacity(entries.len());
+        for e in entries {
+            let frame = Frame::Array(vec![
+                Frame::Integer(offset),
+                Frame::Simple("set".to_string()),
+                Frame::Bulk(Bytes::from(e.key)),
+                Frame::Bulk(e.value),
+            ]);
+            let mut encoded = Vec::new();
+            aof::encode_frame(&frame, &mut encoded)?;
+            snapshot_bytes.push(Bytes::from(encoded));
         }
-    });
+        let mut live = db.subscribe_changes();
+        let snapshot_stream = tokio_stream::iter(snapshot_bytes);
+        let live_stream = Box::pin(async_stream::stream! {
+            loop {
+                match live.recv().await {
+                    Ok(msg) => yield msg,
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(_) => break,
+                }
+            }
+        });
+        Box::pin(snapshot_stream.chain(live_stream))
+    } else if channel_name == CHANGES_CHANNEL {
+        let mut rx = db.subscribe_changes();
+        Box::pin(async_stream::stream! {
+            loop {
+                match rx.recv().await {
+                    Ok(msg) => yield msg,
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(_) => break,
+                }
+            }
+        })
+    } else {
+        let mut rx = db.subscribe(channel_name.clone());
+        Box::pin(async_stream::stream! {
+            loop {
+                match rx.recv().await {
+                    Ok(msg) => yield msg,
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(_) => break,
+                }
+            }
+        })
+    };
 
     // Track subscription in this client's subscription set.
     subscriptions.insert(channel_name.clone(), rx);

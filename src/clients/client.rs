@@ -11,7 +11,9 @@ use tokio::net::{TcpStream, ToSocketAddrs};
 use tokio_stream::Stream;
 use tracing::{debug, instrument};
 
-use crate::cmd::{Del, Exists, Expire, Get, Ping, Pttl, Publish, Set, Subscribe, Ttl, Unsubscribe};
+use crate::cmd::{
+    Del, Exists, Expire, Get, Offset, Ping, Pttl, Publish, Set, Subscribe, Ttl, Unsubscribe,
+};
 use crate::{Connection, Frame};
 
 /// Established connection with a Redis server.
@@ -161,6 +163,18 @@ impl Client {
             Frame::Simple(value) => Ok(Some(value.into())),
             Frame::Bulk(value) => Ok(Some(value)),
             Frame::Null => Ok(None),
+            frame => Err(frame.to_error()),
+        }
+    }
+
+    /// Return the current change-stream offset.
+    #[instrument(skip(self))]
+    pub async fn offset(&mut self) -> crate::Result<i64> {
+        let frame = Offset.into_frame();
+        self.connection.write_frame(&frame).await?;
+
+        match self.read_response().await? {
+            Frame::Integer(value) => Ok(value),
             frame => Err(frame.to_error()),
         }
     }

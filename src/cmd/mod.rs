@@ -25,6 +25,9 @@ pub use ping::Ping;
 mod ttl;
 pub use ttl::{Pttl, Ttl};
 
+mod offset;
+pub use offset::Offset;
+
 mod unknown;
 pub use unknown::Unknown;
 
@@ -39,6 +42,7 @@ pub enum Command {
     Exists(Exists),
     Expire(Expire),
     Get(Get),
+    Offset(Offset),
     Publish(Publish),
     Pttl(Pttl),
     Set(Set),
@@ -78,6 +82,7 @@ impl Command {
             "exists" => Command::Exists(Exists::parse_frames(&mut parse)?),
             "expire" => Command::Expire(Expire::parse_frames(&mut parse)?),
             "get" => Command::Get(Get::parse_frames(&mut parse)?),
+            "offset" => Command::Offset(Offset::parse_frames(&mut parse)?),
             "pttl" => Command::Pttl(Pttl::parse_frames(&mut parse)?),
             "publish" => Command::Publish(Publish::parse_frames(&mut parse)?),
             "set" => Command::Set(Set::parse_frames(&mut parse)?),
@@ -122,6 +127,7 @@ impl Command {
             Exists(cmd) => cmd.apply(db, dst).await,
             Expire(cmd) => cmd.apply(db, dst).await,
             Get(cmd) => cmd.apply(db, dst).await,
+            Offset(cmd) => cmd.apply(db, dst).await,
             Publish(cmd) => cmd.apply(db, dst).await,
             Pttl(cmd) => cmd.apply(db, dst).await,
             Set(cmd) => cmd.apply(db, dst).await,
@@ -142,6 +148,7 @@ impl Command {
             Command::Exists(_) => "exists",
             Command::Expire(_) => "expire",
             Command::Get(_) => "get",
+            Command::Offset(_) => "offset",
             Command::Pttl(_) => "pttl",
             Command::Publish(_) => "publish",
             Command::Set(_) => "set",

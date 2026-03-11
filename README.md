@@ -33,7 +33,7 @@ mprocs
 - [x] snapshot and restore
 - [x] AOF rewrite and tombstones
 - [x] ordered change stream
-- [ ] snapshot and offset bootstrap
+- [x] snapshot and offset bootstrap
 - [ ] leader/follower async replication
 - [ ] resume from persisted offset
 - [ ] read-your-writes and monotonic reads

@@ -157,6 +157,11 @@ impl Db {
         self.shared.change_tx.subscribe()
     }
 
+    pub(crate) fn current_offset(&self) -> i64 {
+        let n = self.shared.next_offset.load(Ordering::SeqCst);
+        n.saturating_sub(1) as i64
+    }
+
     /// Get the value associated with a key.
     ///
     /// Returns `None` if there is no value associated with the key. This may be
