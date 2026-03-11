@@ -18,6 +18,7 @@ pub async fn main() -> Result<()> {
         let server = common::start_server(ServerConfig {
             aof_path: Some(aof_path.clone()),
             snapshot_path: None,
+            ..Default::default()
         })
         .await?;
         let mut client = Client::connect(server.addr).await?;
@@ -38,6 +39,7 @@ pub async fn main() -> Result<()> {
         let server = common::start_server(ServerConfig {
             aof_path: Some(aof_path.clone()),
             snapshot_path: None,
+            ..Default::default()
         })
         .await?;
         let mut client = Client::connect(server.addr).await?;

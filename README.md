@@ -34,7 +34,7 @@ mprocs
 - [x] AOF rewrite and tombstones
 - [x] ordered change stream
 - [x] snapshot and offset bootstrap
-- [ ] leader/follower async replication
+- [x] leader/follower async replication
 - [ ] resume from persisted offset
 - [ ] read-your-writes and monotonic reads
 - [ ] WATCH/CAS-style optimistic writes

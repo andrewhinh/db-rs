@@ -13,8 +13,9 @@ use tokio::time::{self, Duration};
 use tracing::{debug, error, info, instrument};
 
 use crate::aof::{AofAppender, replay_from_path, rewrite_from_db};
+use crate::replication;
 use crate::snapshot::write_to_path;
-use crate::{Command, Connection, Db, DbDropGuard, Shutdown};
+use crate::{Command, Connection, Db, DbDropGuard, Frame, Shutdown};
 
 /// Server listener state. Created in the `run` call. It includes a `run` method
 /// which performs the TCP listening and initialization of per-connection state.
@@ -68,6 +69,8 @@ struct Listener {
 
     /// Append-only file appender for mutating commands.
     aof: Option<AofAppender>,
+
+    is_follower: bool,
 }
 
 /// Per-connection handler. Reads requests from `connection` and applies the
@@ -105,6 +108,8 @@ struct Handler {
 
     /// Append-only file appender for mutating commands.
     aof: Option<AofAppender>,
+
+    is_follower: bool,
 }
 
 /// Maximum number of concurrent connections the redis server will accept.
@@ -125,6 +130,7 @@ const MAX_CONNECTIONS: usize = 250;
 pub struct ServerConfig {
     pub aof_path: Option<PathBuf>,
     pub snapshot_path: Option<PathBuf>,
+    pub replicaof: Option<(String, u16)>,
 }
 
 /// Run the db-rs server.
@@ -151,32 +157,40 @@ pub async fn run_with_config(
     let ServerConfig {
         aof_path,
         snapshot_path,
+        replicaof,
     } = config;
     let aof_rewrite_path = aof_path.clone();
+    let is_follower = replicaof.is_some();
 
-    if let Some(path) = snapshot_path.as_ref() {
-        let replay_stats = replay_from_path(path, &db_holder.db()).await?;
-        info!(
-            path = ?path,
-            applied_commands = replay_stats.applied_commands,
-            truncated_tail_bytes = replay_stats.truncated_tail_bytes,
-            "snapshot restore finished"
-        );
+    if !is_follower {
+        if let Some(path) = snapshot_path.as_ref() {
+            let replay_stats = replay_from_path(path, &db_holder.db()).await?;
+            info!(
+                path = ?path,
+                applied_commands = replay_stats.applied_commands,
+                truncated_tail_bytes = replay_stats.truncated_tail_bytes,
+                "snapshot restore finished"
+            );
+        }
+
+        if let Some(path) = aof_path.as_ref() {
+            let replay_stats = replay_from_path(path, &db_holder.db()).await?;
+            info!(
+                path = ?path,
+                applied_commands = replay_stats.applied_commands,
+                truncated_tail_bytes = replay_stats.truncated_tail_bytes,
+                "AOF replay finished"
+            );
+        }
     }
 
-    if let Some(path) = aof_path.as_ref() {
-        let replay_stats = replay_from_path(path, &db_holder.db()).await?;
-        info!(
-            path = ?path,
-            applied_commands = replay_stats.applied_commands,
-            truncated_tail_bytes = replay_stats.truncated_tail_bytes,
-            "AOF replay finished"
-        );
-    }
-
-    let aof = match aof_path {
-        Some(path) => Some(AofAppender::open(path).await?),
-        None => None,
+    let aof = if is_follower {
+        None
+    } else {
+        match aof_path {
+            Some(path) => Some(AofAppender::open(path).await?),
+            None => None,
+        }
     };
     if let Some(aof) = &aof {
         info!(path = ?aof.path(), "append-only file enabled");
@@ -190,6 +204,14 @@ pub async fn run_with_config(
     let (notify_shutdown, _) = broadcast::channel(1);
     let (shutdown_complete_tx, mut shutdown_complete_rx) = mpsc::channel(1);
 
+    if let Some(addr) = replicaof {
+        tokio::spawn(replication::run_follower(
+            addr,
+            db_holder.db(),
+            notify_shutdown.subscribe(),
+        ));
+    }
+
     // Initialize the listener state
     let mut server = Listener {
         listener,
@@ -198,6 +220,7 @@ pub async fn run_with_config(
         notify_shutdown,
         shutdown_complete_tx,
         aof,
+        is_follower,
     };
 
     // Concurrently run the server and listen for the `shutdown` signal. The
@@ -257,24 +280,26 @@ pub async fn run_with_config(
     // the `mpsc` channel will close and `recv()` will return `None`.
     let _ = shutdown_complete_rx.recv().await;
 
-    if let Some(path) = aof_rewrite_path.as_ref() {
-        let rewrite_stats = rewrite_from_db(path, &db_holder.db()).await?;
-        info!(
-            path = ?path,
-            written_commands = rewrite_stats.written_commands,
-            old_bytes = rewrite_stats.old_bytes,
-            new_bytes = rewrite_stats.new_bytes,
-            "AOF rewrite finished"
-        );
-    }
+    if !is_follower {
+        if let Some(path) = aof_rewrite_path.as_ref() {
+            let rewrite_stats = rewrite_from_db(path, &db_holder.db()).await?;
+            info!(
+                path = ?path,
+                written_commands = rewrite_stats.written_commands,
+                old_bytes = rewrite_stats.old_bytes,
+                new_bytes = rewrite_stats.new_bytes,
+                "AOF rewrite finished"
+            );
+        }
 
-    if let Some(path) = snapshot_path.as_ref() {
-        let snapshot_stats = write_to_path(path, &db_holder.db()).await?;
-        info!(
-            path = ?path,
-            written_commands = snapshot_stats.written_commands,
-            "snapshot write finished"
-        );
+        if let Some(path) = snapshot_path.as_ref() {
+            let snapshot_stats = write_to_path(path, &db_holder.db()).await?;
+            info!(
+                path = ?path,
+                written_commands = snapshot_stats.written_commands,
+                "snapshot write finished"
+            );
+        }
     }
 
     Ok(())
@@ -335,8 +360,8 @@ impl Listener {
                 // Notifies the receiver half once all clones are
                 // dropped.
                 _shutdown_complete: self.shutdown_complete_tx.clone(),
-
                 aof: self.aof.clone(),
+                is_follower: self.is_follower,
             };
 
             // Spawn a new task to process the connections. Tokio tasks are like
@@ -438,6 +463,15 @@ impl Handler {
             // `tracing` provides structured logging, so information is "logged"
             // as key-value pairs.
             debug!(?cmd);
+
+            if self.is_follower && cmd.should_append_to_aof() {
+                self.connection
+                    .write_frame(&Frame::Error(
+                        "READONLY You can't write against a replica.".into(),
+                    ))
+                    .await?;
+                continue;
+            }
 
             if cmd.should_append_to_aof()
                 && let Some(aof) = &self.aof
